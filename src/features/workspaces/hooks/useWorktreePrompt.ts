@@ -13,7 +13,7 @@ type UseWorktreePromptOptions = {
     workspace: WorkspaceInfo,
     branch: string,
   ) => Promise<WorkspaceInfo | null>;
-  connectWorkspace: (workspace: WorkspaceInfo) => Promise<void>;
+  connectWorkspace: (workspace: WorkspaceInfo) => Promise<WorkspaceInfo>;
   onSelectWorkspace: (workspaceId: string) => void;
   onCompactActivate?: () => void;
   onError?: (message: string) => void;

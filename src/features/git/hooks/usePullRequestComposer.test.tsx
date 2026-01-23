@@ -65,7 +65,7 @@ const makeOptions = (overrides: Partial<Parameters<typeof usePullRequestComposer
   setGitPanelMode: vi.fn(),
   setPrefillDraft: vi.fn(),
   setActiveTab: vi.fn(),
-  connectWorkspace: vi.fn().mockResolvedValue(undefined),
+  connectWorkspace: vi.fn().mockResolvedValue(connectedWorkspace),
   startThreadForWorkspace: vi.fn().mockResolvedValue("thread-1"),
   sendUserMessageToThread: vi.fn().mockResolvedValue(undefined),
   clearActiveImages: vi.fn(),

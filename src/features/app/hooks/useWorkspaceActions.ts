@@ -9,7 +9,7 @@ type Params = {
   isCompact: boolean;
   addWorkspace: () => Promise<WorkspaceInfo | null>;
   addWorkspaceFromPath: (path: string) => Promise<WorkspaceInfo | null>;
-  connectWorkspace: (workspace: WorkspaceInfo) => Promise<void>;
+  connectWorkspace: (workspace: WorkspaceInfo) => Promise<WorkspaceInfo>;
   startThreadForWorkspace: (workspaceId: string) => Promise<string | null>;
   setActiveThreadId: (threadId: string | null, workspaceId: string) => void;
   setActiveTab: (tab: "projects" | "codex" | "git" | "log") => void;

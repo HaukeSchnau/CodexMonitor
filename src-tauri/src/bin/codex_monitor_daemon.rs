@@ -784,14 +784,11 @@ impl DaemonState {
         })
     }
 
-    async fn connect_workspace(&self, id: String, client_version: String) -> Result<(), String> {
-        {
-            let sessions = self.sessions.lock().await;
-            if sessions.contains_key(&id) {
-                return Ok(());
-            }
-        }
-
+    async fn connect_workspace(
+        &self,
+        id: String,
+        client_version: String,
+    ) -> Result<WorkspaceInfo, String> {
         let entry = {
             let workspaces = self.workspaces.lock().await;
             workspaces
@@ -799,6 +796,24 @@ impl DaemonState {
                 .cloned()
                 .ok_or("workspace not found")?
         };
+
+        {
+            let sessions = self.sessions.lock().await;
+            if let Some(session) = sessions.get(&id) {
+                return Ok(WorkspaceInfo {
+                    id: entry.id,
+                    name: entry.name,
+                    path: entry.path,
+                    connected: true,
+                    codex_bin: entry.codex_bin,
+                    codex_environment_id: session.codex_environment_id.clone(),
+                    kind: entry.kind,
+                    parent_id: entry.parent_id,
+                    worktree: entry.worktree,
+                    settings: entry.settings,
+                });
+            }
+        }
 
         let (default_bin, active_env) = {
             let settings = self.app_settings.lock().await;
@@ -824,17 +839,28 @@ impl DaemonState {
             (None, None)
         };
         let session = spawn_workspace_session(
-            entry,
+            entry.clone(),
             default_bin,
             client_version,
             self.event_sink.clone(),
             codex_home,
-            codex_environment_id,
+            codex_environment_id.clone(),
         )
         .await?;
 
         self.sessions.lock().await.insert(id, session);
-        Ok(())
+        Ok(WorkspaceInfo {
+            id: entry.id,
+            name: entry.name,
+            path: entry.path,
+            connected: true,
+            codex_bin: entry.codex_bin,
+            codex_environment_id,
+            kind: entry.kind,
+            parent_id: entry.parent_id,
+            worktree: entry.worktree,
+            settings: entry.settings,
+        })
     }
 
     async fn update_app_settings(&self, settings: AppSettings) -> Result<AppSettings, String> {
@@ -1659,8 +1685,8 @@ async fn handle_rpc_request(
         }
         "connect_workspace" => {
             let id = parse_string(&params, "id")?;
-            state.connect_workspace(id, client_version).await?;
-            Ok(json!({ "ok": true }))
+            let workspace = state.connect_workspace(id, client_version).await?;
+            serde_json::to_value(workspace).map_err(|err| err.to_string())
         }
         "remove_workspace" => {
             let id = parse_string(&params, "id")?;

@@ -20,7 +20,7 @@ export function useComposerController({
   isProcessing: boolean;
   isReviewing: boolean;
   steerEnabled: boolean;
-  connectWorkspace: (workspace: WorkspaceInfo) => Promise<void>;
+  connectWorkspace: (workspace: WorkspaceInfo) => Promise<WorkspaceInfo>;
   sendUserMessage: (text: string, images?: string[]) => Promise<void>;
   startReview: (text: string) => Promise<void>;
 }) {

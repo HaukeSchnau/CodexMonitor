@@ -184,6 +184,13 @@ function MainApp() {
     addDebugEntry,
     queueSaveSettings,
   });
+  const handleWorkspaceConnected = useCallback(
+    (workspaceId: string) => {
+      markWorkspaceConnected(workspaceId);
+      void refreshWorkspaces();
+    },
+    [markWorkspaceConnected, refreshWorkspaces],
+  );
   const workspacesById = useMemo(
     () => new Map(workspaces.map((workspace) => [workspace.id, workspace])),
     [workspaces],
@@ -599,7 +606,7 @@ function MainApp() {
     handleApprovalRemember
   } = useThreads({
     activeWorkspace,
-    onWorkspaceConnected: markWorkspaceConnected,
+    onWorkspaceConnected: handleWorkspaceConnected,
     onDebug: addDebugEntry,
     model: resolvedModel,
     effort: selectedEffort,

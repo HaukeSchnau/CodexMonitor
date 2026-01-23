@@ -361,7 +361,11 @@ export function useWorkspaces(options: UseWorkspacesOptions = {}) {
       payload: { workspaceId: entry.id, path: entry.path },
     });
     try {
-      await connectWorkspaceService(entry.id);
+      const workspace = await connectWorkspaceService(entry.id);
+      setWorkspaces((prev) =>
+        prev.map((item) => (item.id === workspace.id ? workspace : item)),
+      );
+      return workspace;
     } catch (error) {
       onDebug?.({
         id: `${Date.now()}-client-connect-workspace-error`,

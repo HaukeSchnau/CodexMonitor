@@ -4,7 +4,7 @@ import type { WorkspaceInfo } from "../../../types";
 type WorkspaceRestoreOptions = {
   workspaces: WorkspaceInfo[];
   hasLoaded: boolean;
-  connectWorkspace: (workspace: WorkspaceInfo) => Promise<void>;
+  connectWorkspace: (workspace: WorkspaceInfo) => Promise<WorkspaceInfo>;
   listThreadsForWorkspace: (workspace: WorkspaceInfo) => Promise<void>;
 };
 

@@ -20,7 +20,7 @@ const makeOptions = (
   isReviewing: false,
   steerEnabled: false,
   activeWorkspace: workspace,
-  connectWorkspace: vi.fn().mockResolvedValue(undefined),
+  connectWorkspace: vi.fn().mockResolvedValue(workspace),
   sendUserMessage: vi.fn().mockResolvedValue(undefined),
   startReview: vi.fn().mockResolvedValue(undefined),
   clearActiveImages: vi.fn(),
@@ -171,7 +171,7 @@ describe("useQueuedSend", () => {
   });
 
   it("connects workspace before sending when disconnected", async () => {
-    const connectWorkspace = vi.fn().mockResolvedValue(undefined);
+    const connectWorkspace = vi.fn().mockResolvedValue(workspace);
     const options = makeOptions({
       activeWorkspace: { ...workspace, connected: false },
       connectWorkspace,

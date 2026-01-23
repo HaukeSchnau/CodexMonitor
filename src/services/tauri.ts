@@ -124,8 +124,8 @@ export async function openWorkspaceIn(path: string, app: string): Promise<void> 
   return invoke("open_workspace_in", { path, app });
 }
 
-export async function connectWorkspace(id: string): Promise<void> {
-  return invoke("connect_workspace", { id });
+export async function connectWorkspace(id: string): Promise<WorkspaceInfo> {
+  return invoke<WorkspaceInfo>("connect_workspace", { id });
 }
 
 export async function startThread(workspaceId: string) {

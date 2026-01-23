@@ -19,7 +19,7 @@ type UseClonePromptOptions = {
     copyName: string,
     copiesFolder: string,
   ) => Promise<WorkspaceInfo | null>;
-  connectWorkspace: (workspace: WorkspaceInfo) => Promise<void>;
+  connectWorkspace: (workspace: WorkspaceInfo) => Promise<WorkspaceInfo>;
   onSelectWorkspace: (workspaceId: string) => void;
   resolveProjectContext: (
     workspace: WorkspaceInfo,

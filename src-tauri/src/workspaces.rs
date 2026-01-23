@@ -1488,11 +1488,12 @@ pub(crate) async fn connect_workspace(
     id: String,
     state: State<'_, AppState>,
     app: AppHandle,
-) -> Result<(), String> {
+) -> Result<WorkspaceInfo, String> {
     if remote_backend::is_remote_mode(&*state).await {
-        remote_backend::call_remote(&*state, app, "connect_workspace", json!({ "id": id }))
-            .await?;
-        return Ok(());
+        let response =
+            remote_backend::call_remote(&*state, app, "connect_workspace", json!({ "id": id }))
+                .await?;
+        return serde_json::from_value(response).map_err(|err| err.to_string());
     }
 
     let (entry, parent_path) = {
@@ -1511,6 +1512,24 @@ pub(crate) async fn connect_workspace(
             .ok_or("workspace not found")?
     };
 
+    {
+        let sessions = state.sessions.lock().await;
+        if let Some(session) = sessions.get(&id) {
+            return Ok(WorkspaceInfo {
+                id: entry.id,
+                name: entry.name,
+                path: entry.path,
+                codex_bin: entry.codex_bin,
+                codex_environment_id: session.codex_environment_id.clone(),
+                connected: true,
+                kind: entry.kind,
+                parent_id: entry.parent_id,
+                worktree: entry.worktree,
+                settings: entry.settings,
+            });
+        }
+    }
+
     let (default_bin, active_env) = {
         let settings = state.app_settings.lock().await;
         (settings.codex_bin.clone(), resolve_active_codex_environment(&settings))
@@ -1528,11 +1547,26 @@ pub(crate) async fn connect_workspace(
         default_bin,
         app,
         codex_home,
-        codex_environment_id,
+        codex_environment_id.clone(),
     )
     .await?;
-    state.sessions.lock().await.insert(entry.id, session);
-    Ok(())
+    state
+        .sessions
+        .lock()
+        .await
+        .insert(entry.id.clone(), session);
+    Ok(WorkspaceInfo {
+        id: entry.id,
+        name: entry.name,
+        path: entry.path,
+        codex_bin: entry.codex_bin,
+        codex_environment_id,
+        connected: true,
+        kind: entry.kind,
+        parent_id: entry.parent_id,
+        worktree: entry.worktree,
+        settings: entry.settings,
+    })
 }
 
 #[tauri::command]
