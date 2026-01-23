@@ -1005,6 +1005,8 @@ function MainApp() {
   }, [alertError, getGlobalPromptsDir]);
 
   const isWorktreeWorkspace = activeWorkspace?.kind === "worktree";
+  const isGitWorktree =
+    isWorktreeWorkspace && activeWorkspace?.worktreeKind !== "jj";
   const activeParentWorkspace = isWorktreeWorkspace
     ? workspacesById.get(activeWorkspace?.parentId ?? "") ?? null
     : null;
@@ -1454,10 +1456,10 @@ function MainApp() {
     worktreeApplyTitle: activeParentWorkspace?.name
       ? `Apply changes to ${activeParentWorkspace.name}`
       : "Apply changes to parent workspace",
-    worktreeApplyLoading: isWorktreeWorkspace ? worktreeApplyLoading : false,
-    worktreeApplyError: isWorktreeWorkspace ? worktreeApplyError : null,
-    worktreeApplySuccess: isWorktreeWorkspace ? worktreeApplySuccess : false,
-    onApplyWorktreeChanges: isWorktreeWorkspace
+    worktreeApplyLoading: isGitWorktree ? worktreeApplyLoading : false,
+    worktreeApplyError: isGitWorktree ? worktreeApplyError : null,
+    worktreeApplySuccess: isGitWorktree ? worktreeApplySuccess : false,
+    onApplyWorktreeChanges: isGitWorktree
       ? handleApplyWorktreeChanges
       : undefined,
     gitStatus,

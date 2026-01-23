@@ -4,6 +4,7 @@ import type { WorkspaceInfo } from "../../../types";
 type WorktreePromptState = {
   workspace: WorkspaceInfo;
   branch: string;
+  defaultBranch: string;
   isSubmitting: boolean;
   error: string | null;
 } | null;
@@ -12,6 +13,7 @@ type UseWorktreePromptOptions = {
   addWorktreeAgent: (
     workspace: WorkspaceInfo,
     branch: string,
+    options?: { createBookmark?: boolean },
   ) => Promise<WorkspaceInfo | null>;
   connectWorkspace: (workspace: WorkspaceInfo) => Promise<void>;
   onSelectWorkspace: (workspaceId: string) => void;
@@ -44,6 +46,7 @@ export function useWorktreePrompt({
     setWorktreePrompt({
       workspace,
       branch: defaultBranch,
+      defaultBranch,
       isSubmitting: false,
       error: null,
     });
@@ -68,7 +71,12 @@ export function useWorktreePrompt({
       prev ? { ...prev, isSubmitting: true, error: null } : prev,
     );
     try {
-      const worktreeWorkspace = await addWorktreeAgent(workspace, branch);
+      const trimmed = branch.trim();
+      const defaultBranch = worktreePrompt.defaultBranch.trim();
+      const createBookmark = trimmed !== defaultBranch;
+      const worktreeWorkspace = await addWorktreeAgent(workspace, branch, {
+        createBookmark,
+      });
       if (!worktreeWorkspace) {
         setWorktreePrompt(null);
         return;

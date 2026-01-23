@@ -34,7 +34,8 @@ use backend::app_server::{spawn_workspace_session, WorkspaceSession};
 use backend::events::{AppServerEvent, EventSink, TerminalOutput};
 use storage::{read_settings, read_workspaces, write_settings, write_workspaces};
 use types::{
-    AppSettings, WorkspaceEntry, WorkspaceInfo, WorkspaceKind, WorkspaceSettings, WorktreeInfo,
+    AppSettings, WorktreeKind, WorkspaceEntry, WorkspaceInfo, WorkspaceKind, WorkspaceSettings,
+    WorktreeInfo,
 };
 
 const DEFAULT_LISTEN_ADDR: &str = "127.0.0.1:4732";
@@ -128,6 +129,7 @@ impl DaemonState {
                 kind: entry.kind.clone(),
                 parent_id: entry.parent_id.clone(),
                 worktree: entry.worktree.clone(),
+                worktree_kind: entry.worktree_kind.clone(),
                 settings: entry.settings.clone(),
             });
         }
@@ -163,6 +165,7 @@ impl DaemonState {
             kind: WorkspaceKind::Main,
             parent_id: None,
             worktree: None,
+            worktree_kind: None,
             settings: WorkspaceSettings::default(),
         };
 
@@ -199,6 +202,7 @@ impl DaemonState {
             kind: entry.kind,
             parent_id: entry.parent_id,
             worktree: entry.worktree,
+            worktree_kind: entry.worktree_kind,
             settings: entry.settings,
         })
     }
@@ -207,6 +211,7 @@ impl DaemonState {
         &self,
         parent_id: String,
         branch: String,
+        create_bookmark: Option<bool>,
         client_version: String,
     ) -> Result<WorkspaceInfo, String> {
         let branch = branch.trim().to_string();
@@ -226,6 +231,9 @@ impl DaemonState {
             return Err("Cannot create a worktree from another worktree.".to_string());
         }
 
+        let worktree_kind = resolve_worktree_kind(&PathBuf::from(&parent_entry.path));
+        let create_bookmark = create_bookmark.unwrap_or(false);
+
         let worktree_root = self.data_dir.join("worktrees").join(&parent_entry.id);
         std::fs::create_dir_all(&worktree_root)
             .map_err(|e| format!("Failed to create worktree directory: {e}"))?;
@@ -235,25 +243,50 @@ impl DaemonState {
         let worktree_path_string = worktree_path.to_string_lossy().to_string();
 
         let repo_path = PathBuf::from(&parent_entry.path);
-        let branch_exists = git_branch_exists(&repo_path, &branch).await?;
-        if branch_exists {
-            run_git_command(
-                &repo_path,
-                &["worktree", "add", &worktree_path_string, &branch],
-            )
-            .await?;
-        } else if let Some(remote_ref) = git_find_remote_tracking_branch(&repo_path, &branch).await? {
-            run_git_command(
-                &repo_path,
-                &["worktree", "add", "-b", &branch, &worktree_path_string, &remote_ref],
-            )
-            .await?;
+        if matches!(worktree_kind, WorktreeKind::Git) {
+            let branch_exists = git_branch_exists(&repo_path, &branch).await?;
+            if branch_exists {
+                run_git_command(
+                    &repo_path,
+                    &["worktree", "add", &worktree_path_string, &branch],
+                )
+                .await?;
+            } else if let Some(remote_ref) =
+                git_find_remote_tracking_branch(&repo_path, &branch).await?
+            {
+                run_git_command(
+                    &repo_path,
+                    &["worktree", "add", "-b", &branch, &worktree_path_string, &remote_ref],
+                )
+                .await?;
+            } else {
+                run_git_command(
+                    &repo_path,
+                    &["worktree", "add", "-b", &branch, &worktree_path_string],
+                )
+                .await?;
+            }
         } else {
-            run_git_command(
-                &repo_path,
-                &["worktree", "add", "-b", &branch, &worktree_path_string],
+            let repo_root =
+                find_jj_root(&repo_path).ok_or("JJ repo not found for parent workspace.")?;
+            if let Err(error) = run_jj_command(
+                &repo_root,
+                &["workspace", "add", &branch, "--path", &worktree_path_string],
             )
-            .await?;
+            .await
+            {
+                let _ = tokio::fs::remove_dir_all(&worktree_path).await;
+                return Err(error);
+            }
+            if create_bookmark {
+                if let Err(error) =
+                    run_jj_command(&repo_root, &["bookmark", "create", &branch]).await
+                {
+                    let _ = run_jj_command(&repo_root, &["workspace", "forget", &branch]).await;
+                    let _ = tokio::fs::remove_dir_all(&worktree_path).await;
+                    return Err(error);
+                }
+            }
         }
 
         let entry = WorkspaceEntry {
@@ -266,6 +299,7 @@ impl DaemonState {
             worktree: Some(WorktreeInfo {
                 branch: branch.to_string(),
             }),
+            worktree_kind: Some(worktree_kind),
             settings: WorkspaceSettings::default(),
         };
 
@@ -302,6 +336,7 @@ impl DaemonState {
             kind: entry.kind,
             parent_id: entry.parent_id,
             worktree: entry.worktree,
+            worktree_kind: entry.worktree_kind,
             settings: entry.settings,
         })
     }
@@ -327,7 +362,24 @@ impl DaemonState {
 
         for child in &child_worktrees {
             let child_path = PathBuf::from(&child.path);
-            if child_path.exists() {
+            let child_kind = child.worktree_kind.clone().unwrap_or(WorktreeKind::Git);
+            if matches!(child_kind, WorktreeKind::Jj) {
+                let repo_root =
+                    find_jj_root(&repo_path).ok_or("JJ repo not found for parent workspace.")?;
+                if let Some(worktree) = child.worktree.as_ref() {
+                    let _ =
+                        run_jj_command(&repo_root, &["workspace", "forget", &worktree.branch]).await;
+                }
+                if child_path.exists() {
+                    if let Err(fs_err) = std::fs::remove_dir_all(&child_path) {
+                        failures.push((
+                            child.id.clone(),
+                            format!("Failed to remove worktree folder: {fs_err}"),
+                        ));
+                        continue;
+                    }
+                }
+            } else if child_path.exists() {
                 if let Err(err) = run_git_command(
                     &repo_path,
                     &["worktree", "remove", "--force", &child.path],
@@ -573,6 +625,7 @@ impl DaemonState {
             kind: entry_snapshot.kind,
             parent_id: entry_snapshot.parent_id,
             worktree: entry_snapshot.worktree,
+            worktree_kind: entry_snapshot.worktree_kind,
             settings: entry_snapshot.settings,
         })
     }
@@ -597,6 +650,9 @@ impl DaemonState {
             let entry = workspaces.get(&id).cloned().ok_or("workspace not found")?;
             if !entry.kind.is_worktree() {
                 return Err("Not a worktree workspace.".to_string());
+            }
+            if matches!(entry.worktree_kind.clone().unwrap_or(WorktreeKind::Git), WorktreeKind::Jj) {
+                return Err("Upstream rename is not available for JJ worktrees.".to_string());
             }
             let parent_id = entry.parent_id.clone().ok_or("worktree parent not found")?;
             let parent = workspaces
@@ -689,6 +745,7 @@ impl DaemonState {
             kind: entry_snapshot.kind,
             parent_id: entry_snapshot.parent_id,
             worktree: entry_snapshot.worktree,
+            worktree_kind: entry_snapshot.worktree_kind,
             settings: entry_snapshot.settings,
         })
     }
@@ -722,6 +779,7 @@ impl DaemonState {
             kind: entry_snapshot.kind,
             parent_id: entry_snapshot.parent_id,
             worktree: entry_snapshot.worktree,
+            worktree_kind: entry_snapshot.worktree_kind,
             settings: entry_snapshot.settings,
         })
     }
@@ -1166,6 +1224,31 @@ async fn run_git_command(repo_path: &PathBuf, args: &[&str]) -> Result<String, S
     }
 }
 
+async fn run_jj_command(repo_path: &PathBuf, args: &[&str]) -> Result<String, String> {
+    let output = Command::new("jj")
+        .args(args)
+        .current_dir(repo_path)
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run jj: {e}"))?;
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let detail = if stderr.trim().is_empty() {
+            stdout.trim()
+        } else {
+            stderr.trim()
+        };
+        if detail.is_empty() {
+            Err("JJ command failed.".to_string())
+        } else {
+            Err(detail.to_string())
+        }
+    }
+}
+
 fn is_missing_worktree_error(error: &str) -> bool {
     error.contains("is not a working tree")
 }
@@ -1332,6 +1415,25 @@ fn sanitize_worktree_name(branch: &str) -> String {
         "worktree".to_string()
     } else {
         trimmed
+    }
+}
+
+fn find_jj_root(start: &PathBuf) -> Option<PathBuf> {
+    let mut current: Option<&std::path::Path> = Some(start.as_path());
+    while let Some(path) = current {
+        if path.join(".jj").is_dir() {
+            return Some(path.to_path_buf());
+        }
+        current = path.parent();
+    }
+    None
+}
+
+fn resolve_worktree_kind(entry_path: &PathBuf) -> WorktreeKind {
+    if find_jj_root(entry_path).is_some() {
+        WorktreeKind::Jj
+    } else {
+        WorktreeKind::Git
     }
 }
 
@@ -1537,6 +1639,13 @@ fn parse_optional_u32(value: &Value, key: &str) -> Option<u32> {
     }
 }
 
+fn parse_optional_bool(value: &Value, key: &str) -> Option<bool> {
+    match value {
+        Value::Object(map) => map.get(key).and_then(|value| value.as_bool()),
+        _ => None,
+    }
+}
+
 fn parse_optional_string_array(value: &Value, key: &str) -> Option<Vec<String>> {
     match value {
         Value::Object(map) => map.get(key).and_then(|value| value.as_array()).map(|items| {
@@ -1586,8 +1695,9 @@ async fn handle_rpc_request(
         "add_worktree" => {
             let parent_id = parse_string(&params, "parentId")?;
             let branch = parse_string(&params, "branch")?;
+            let create_bookmark = parse_optional_bool(&params, "createBookmark");
             let workspace = state
-                .add_worktree(parent_id, branch, client_version)
+                .add_worktree(parent_id, branch, create_bookmark, client_version)
                 .await?;
             serde_json::to_value(workspace).map_err(|err| err.to_string())
         }

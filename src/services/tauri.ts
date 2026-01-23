@@ -75,8 +75,13 @@ export async function addClone(
 export async function addWorktree(
   parentId: string,
   branch: string,
+  createBookmark?: boolean,
 ): Promise<WorkspaceInfo> {
-  return invoke<WorkspaceInfo>("add_worktree", { parentId, branch });
+  return invoke<WorkspaceInfo>("add_worktree", {
+    parentId,
+    branch,
+    createBookmark,
+  });
 }
 
 export async function updateWorkspaceSettings(

@@ -270,20 +270,25 @@ export function useWorkspaces(options: UseWorkspacesOptions = {}) {
     return checks.filter((entry) => entry.isDir).map((entry) => entry.path);
   }, []);
 
-  async function addWorktreeAgent(parent: WorkspaceInfo, branch: string) {
+  async function addWorktreeAgent(
+    parent: WorkspaceInfo,
+    branch: string,
+    options?: { createBookmark?: boolean },
+  ) {
     const trimmed = branch.trim();
     if (!trimmed) {
       return null;
     }
+    const createBookmark = options?.createBookmark ?? false;
     onDebug?.({
       id: `${Date.now()}-client-add-worktree`,
       timestamp: Date.now(),
       source: "client",
       label: "worktree/add",
-      payload: { parentId: parent.id, branch: trimmed },
+      payload: { parentId: parent.id, branch: trimmed, createBookmark },
     });
     try {
-      const workspace = await addWorktreeService(parent.id, trimmed);
+      const workspace = await addWorktreeService(parent.id, trimmed, createBookmark);
       setWorkspaces((prev) => [...prev, workspace]);
       setActiveWorkspaceId(workspace.id);
       Sentry.metrics.count("worktree_agent_created", 1, {

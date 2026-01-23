@@ -152,7 +152,7 @@ export function useRenameWorktreePrompt({
       const updated = await renameWorktree(target.workspaceId, trimmed);
       const actualName = updated.worktree?.branch ?? updated.name;
       onRenameSuccess?.(updated);
-      if (actualName !== target.originalName) {
+      if (updated.worktreeKind !== "jj" && actualName !== target.originalName) {
         setUpstreamPrompt({
           workspaceId: target.workspaceId,
           oldBranch: target.originalName,

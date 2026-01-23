@@ -49,6 +49,7 @@ CodexMonitor is a macOS Tauri app for orchestrating multiple Codex agents across
 - CMake (required for native dependencies; Whisper/dictation uses it on non-Windows)
 - Codex installed on your system and available as `codex` in `PATH`
 - Git CLI (used for worktree operations)
+- Jujutsu (`jj`) CLI (optional, used for JJ worktrees)
 - GitHub CLI (`gh`) for the Issues panel (optional)
 
 If the `codex` binary is not in `PATH`, update the backend to pass a custom path per workspace.

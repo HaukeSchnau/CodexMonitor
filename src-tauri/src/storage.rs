@@ -66,6 +66,7 @@ mod tests {
             kind: WorkspaceKind::Main,
             parent_id: None,
             worktree: None,
+            worktree_kind: None,
             settings: settings.clone(),
         };
 

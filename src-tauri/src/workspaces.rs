@@ -19,7 +19,7 @@ use crate::state::AppState;
 use crate::git_utils::resolve_git_root;
 use crate::storage::write_workspaces;
 use crate::types::{
-    WorkspaceEntry, WorkspaceInfo, WorkspaceKind, WorkspaceSettings, WorktreeInfo,
+    WorktreeKind, WorkspaceEntry, WorkspaceInfo, WorkspaceKind, WorkspaceSettings, WorktreeInfo,
 };
 use crate::utils::normalize_git_path;
 
@@ -223,6 +223,31 @@ async fn run_git_command(repo_path: &PathBuf, args: &[&str]) -> Result<String, S
         };
         if detail.is_empty() {
             Err("Git command failed.".to_string())
+        } else {
+            Err(detail.to_string())
+        }
+    }
+}
+
+async fn run_jj_command(repo_path: &PathBuf, args: &[&str]) -> Result<String, String> {
+    let output = Command::new("jj")
+        .args(args)
+        .current_dir(repo_path)
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run jj: {e}"))?;
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let detail = if stderr.trim().is_empty() {
+            stdout.trim()
+        } else {
+            stderr.trim()
+        };
+        if detail.is_empty() {
+            Err("JJ command failed.".to_string())
         } else {
             Err(detail.to_string())
         }
@@ -459,6 +484,25 @@ fn null_device_path() -> &'static str {
     }
 }
 
+fn find_jj_root(start: &PathBuf) -> Option<PathBuf> {
+    let mut current: Option<&std::path::Path> = Some(start.as_path());
+    while let Some(path) = current {
+        if path.join(".jj").is_dir() {
+            return Some(path.to_path_buf());
+        }
+        current = path.parent();
+    }
+    None
+}
+
+fn resolve_worktree_kind(entry_path: &PathBuf) -> WorktreeKind {
+    if find_jj_root(entry_path).is_some() {
+        WorktreeKind::Jj
+    } else {
+        WorktreeKind::Git
+    }
+}
+
 #[tauri::command]
 pub(crate) async fn list_workspaces(
     state: State<'_, AppState>,
@@ -482,6 +526,7 @@ pub(crate) async fn list_workspaces(
             kind: entry.kind.clone(),
             parent_id: entry.parent_id.clone(),
             worktree: entry.worktree.clone(),
+            worktree_kind: entry.worktree_kind.clone(),
             settings: entry.settings.clone(),
         });
     }
@@ -543,6 +588,7 @@ pub(crate) async fn add_workspace(
         kind: WorkspaceKind::Main,
         parent_id: None,
         worktree: None,
+        worktree_kind: None,
         settings: WorkspaceSettings::default(),
     };
 
@@ -583,6 +629,7 @@ pub(crate) async fn add_workspace(
         kind: entry.kind,
         parent_id: entry.parent_id,
         worktree: entry.worktree,
+        worktree_kind: entry.worktree_kind,
         settings: entry.settings,
     })
 }
@@ -658,6 +705,7 @@ pub(crate) async fn add_clone(
         kind: WorkspaceKind::Main,
         parent_id: None,
         worktree: None,
+        worktree_kind: None,
         settings: WorkspaceSettings {
             group_id: inherited_group_id,
             ..WorkspaceSettings::default()
@@ -708,6 +756,7 @@ pub(crate) async fn add_clone(
         kind: entry.kind,
         parent_id: entry.parent_id,
         worktree: entry.worktree,
+        worktree_kind: entry.worktree_kind,
         settings: entry.settings,
     })
 }
@@ -716,10 +765,11 @@ pub(crate) async fn add_clone(
 pub(crate) async fn add_worktree(
     parent_id: String,
     branch: String,
+    create_bookmark: Option<bool>,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<WorkspaceInfo, String> {
-    let branch = branch.trim();
+    let branch = branch.trim().to_string();
     if branch.is_empty() {
         return Err("Branch name is required.".to_string());
     }
@@ -736,6 +786,9 @@ pub(crate) async fn add_worktree(
         return Err("Cannot create a worktree from another worktree.".to_string());
     }
 
+    let worktree_kind = resolve_worktree_kind(&PathBuf::from(&parent_entry.path));
+    let create_bookmark = create_bookmark.unwrap_or(false);
+
     let worktree_root = app
         .path()
         .app_data_dir()
@@ -745,35 +798,60 @@ pub(crate) async fn add_worktree(
     std::fs::create_dir_all(&worktree_root)
         .map_err(|e| format!("Failed to create worktree directory: {e}"))?;
 
-    let safe_name = sanitize_worktree_name(branch);
+    let safe_name = sanitize_worktree_name(&branch);
     let worktree_path = unique_worktree_path(&worktree_root, &safe_name);
     let worktree_path_string = worktree_path.to_string_lossy().to_string();
 
-    let branch_exists = git_branch_exists(&PathBuf::from(&parent_entry.path), branch).await?;
-    if branch_exists {
-        run_git_command(
-            &PathBuf::from(&parent_entry.path),
-            &["worktree", "add", &worktree_path_string, branch],
-        )
-        .await?;
+    let parent_path = PathBuf::from(&parent_entry.path);
+    if matches!(worktree_kind, WorktreeKind::Git) {
+        let branch_exists = git_branch_exists(&parent_path, &branch).await?;
+        if branch_exists {
+            run_git_command(
+                &parent_path,
+                &["worktree", "add", &worktree_path_string, &branch],
+            )
+            .await?;
+        } else {
+            run_git_command(
+                &parent_path,
+                &["worktree", "add", "-b", &branch, &worktree_path_string],
+            )
+            .await?;
+        }
     } else {
-        run_git_command(
-            &PathBuf::from(&parent_entry.path),
-            &["worktree", "add", "-b", branch, &worktree_path_string],
+        let repo_root =
+            find_jj_root(&parent_path).ok_or("JJ repo not found for parent workspace.")?;
+        if let Err(error) = run_jj_command(
+            &repo_root,
+            &["workspace", "add", &branch, "--path", &worktree_path_string],
         )
-        .await?;
+        .await
+        {
+            let _ = tokio::fs::remove_dir_all(&worktree_path).await;
+            return Err(error);
+        }
+        if create_bookmark {
+            if let Err(error) =
+                run_jj_command(&repo_root, &["bookmark", "create", &branch]).await
+            {
+                let _ = run_jj_command(&repo_root, &["workspace", "forget", &branch]).await;
+                let _ = tokio::fs::remove_dir_all(&worktree_path).await;
+                return Err(error);
+            }
+        }
     }
 
     let entry = WorkspaceEntry {
         id: Uuid::new_v4().to_string(),
-        name: branch.to_string(),
+        name: branch.clone(),
         path: worktree_path_string,
         codex_bin: parent_entry.codex_bin.clone(),
         kind: WorkspaceKind::Worktree,
         parent_id: Some(parent_entry.id.clone()),
         worktree: Some(WorktreeInfo {
-            branch: branch.to_string(),
+            branch: branch.clone(),
         }),
+        worktree_kind: Some(worktree_kind),
         settings: WorkspaceSettings::default(),
     };
 
@@ -804,6 +882,7 @@ pub(crate) async fn add_worktree(
         kind: entry.kind,
         parent_id: entry.parent_id,
         worktree: entry.worktree,
+        worktree_kind: entry.worktree_kind,
         settings: entry.settings,
     })
 }
@@ -837,7 +916,18 @@ pub(crate) async fn remove_workspace(
             let _ = child_process.kill().await;
         }
         let child_path = PathBuf::from(&child.path);
-        if child_path.exists() {
+        let child_kind = child.worktree_kind.clone().unwrap_or(WorktreeKind::Git);
+        if matches!(child_kind, WorktreeKind::Jj) {
+            let repo_root = find_jj_root(&parent_path)
+                .ok_or("JJ repo not found for parent workspace.")?;
+            if let Some(worktree) = child.worktree.as_ref() {
+                let _ = run_jj_command(&repo_root, &["workspace", "forget", &worktree.branch]).await;
+            }
+            if child_path.exists() {
+                std::fs::remove_dir_all(&child_path)
+                    .map_err(|err| format!("Failed to remove worktree folder: {err}"))?;
+            }
+        } else if child_path.exists() {
             if let Err(error) = run_git_command(
                 &parent_path,
                 &["worktree", "remove", "--force", &child.path],
@@ -908,25 +998,38 @@ pub(crate) async fn remove_worktree(
 
     let parent_path = PathBuf::from(&parent.path);
     let entry_path = PathBuf::from(&entry.path);
-    if entry_path.exists() {
-        if let Err(error) = run_git_command(
-            &parent_path,
-            &["worktree", "remove", "--force", &entry.path],
-        )
-        .await
-        {
-            if is_missing_worktree_error(&error) {
-                if entry_path.exists() {
-                    std::fs::remove_dir_all(&entry_path).map_err(|err| {
-                        format!("Failed to remove worktree folder: {err}")
-                    })?;
+    let worktree_kind = entry.worktree_kind.clone().unwrap_or(WorktreeKind::Git);
+    if matches!(worktree_kind, WorktreeKind::Jj) {
+        let repo_root =
+            find_jj_root(&parent_path).ok_or("JJ repo not found for parent workspace.")?;
+        if let Some(worktree) = entry.worktree.as_ref() {
+            let _ = run_jj_command(&repo_root, &["workspace", "forget", &worktree.branch]).await;
+        }
+        if entry_path.exists() {
+            std::fs::remove_dir_all(&entry_path)
+                .map_err(|err| format!("Failed to remove worktree folder: {err}"))?;
+        }
+    } else {
+        if entry_path.exists() {
+            if let Err(error) = run_git_command(
+                &parent_path,
+                &["worktree", "remove", "--force", &entry.path],
+            )
+            .await
+            {
+                if is_missing_worktree_error(&error) {
+                    if entry_path.exists() {
+                        std::fs::remove_dir_all(&entry_path).map_err(|err| {
+                            format!("Failed to remove worktree folder: {err}")
+                        })?;
+                    }
+                } else {
+                    return Err(error);
                 }
-            } else {
-                return Err(error);
             }
         }
+        let _ = run_git_command(&parent_path, &["worktree", "prune", "--expire", "now"]).await;
     }
-    let _ = run_git_command(&parent_path, &["worktree", "prune", "--expire", "now"]).await;
 
     {
         let mut workspaces = state.workspaces.lock().await;
@@ -990,48 +1093,58 @@ pub(crate) async fn rename_worktree(
         return Err("Branch name is unchanged.".to_string());
     }
 
-    let parent_root = resolve_git_root(&parent)?;
-    let (final_branch, _was_suffixed) =
-        unique_branch_name(&parent_root, trimmed, None).await?;
-    if final_branch == old_branch {
-        return Err("Branch name is unchanged.".to_string());
-    }
-
-    run_git_command(
-        &parent_root,
-        &["branch", "-m", &old_branch, &final_branch],
-    )
-    .await?;
-
-    let worktree_root = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Failed to resolve app data dir: {e}"))?
-        .join("worktrees")
-        .join(&parent.id);
-    std::fs::create_dir_all(&worktree_root)
-        .map_err(|e| format!("Failed to create worktree directory: {e}"))?;
-
-    let safe_name = sanitize_worktree_name(&final_branch);
-    let current_path = PathBuf::from(&entry.path);
-    let next_path =
-        unique_worktree_path_for_rename(&worktree_root, &safe_name, &current_path)?;
-    let next_path_string = next_path.to_string_lossy().to_string();
-    if next_path_string != entry.path {
-        if let Err(error) = run_git_command(
-            &parent_root,
-            &["worktree", "move", &entry.path, &next_path_string],
-        )
-        .await
-        {
-            let _ = run_git_command(
-                &parent_root,
-                &["branch", "-m", &final_branch, &old_branch],
-            )
-            .await;
-            return Err(error);
+    let worktree_kind = entry.worktree_kind.clone().unwrap_or(WorktreeKind::Git);
+    let (final_branch, next_path_string) = if matches!(worktree_kind, WorktreeKind::Jj) {
+        let parent_path = PathBuf::from(&parent.path);
+        let repo_root =
+            find_jj_root(&parent_path).ok_or("JJ repo not found for parent workspace.")?;
+        run_jj_command(&repo_root, &["workspace", "rename", &old_branch, trimmed]).await?;
+        (trimmed.to_string(), entry.path.clone())
+    } else {
+        let parent_root = resolve_git_root(&parent)?;
+        let (final_branch, _was_suffixed) =
+            unique_branch_name(&parent_root, trimmed, None).await?;
+        if final_branch == old_branch {
+            return Err("Branch name is unchanged.".to_string());
         }
-    }
+
+        run_git_command(
+            &parent_root,
+            &["branch", "-m", &old_branch, &final_branch],
+        )
+        .await?;
+
+        let worktree_root = app
+            .path()
+            .app_data_dir()
+            .map_err(|e| format!("Failed to resolve app data dir: {e}"))?
+            .join("worktrees")
+            .join(&parent.id);
+        std::fs::create_dir_all(&worktree_root)
+            .map_err(|e| format!("Failed to create worktree directory: {e}"))?;
+
+        let safe_name = sanitize_worktree_name(&final_branch);
+        let current_path = PathBuf::from(&entry.path);
+        let next_path =
+            unique_worktree_path_for_rename(&worktree_root, &safe_name, &current_path)?;
+        let next_path_string = next_path.to_string_lossy().to_string();
+        if next_path_string != entry.path {
+            if let Err(error) = run_git_command(
+                &parent_root,
+                &["worktree", "move", &entry.path, &next_path_string],
+            )
+            .await
+            {
+                let _ = run_git_command(
+                    &parent_root,
+                    &["branch", "-m", &final_branch, &old_branch],
+                )
+                .await;
+                return Err(error);
+            }
+        }
+        (final_branch, next_path_string)
+    };
 
     let (entry_snapshot, list) = {
         let mut workspaces = state.workspaces.lock().await;
@@ -1095,6 +1208,7 @@ pub(crate) async fn rename_worktree(
         kind: entry_snapshot.kind,
         parent_id: entry_snapshot.parent_id,
         worktree: entry_snapshot.worktree,
+        worktree_kind: entry_snapshot.worktree_kind,
         settings: entry_snapshot.settings,
     })
 }
@@ -1135,6 +1249,9 @@ pub(crate) async fn rename_worktree_upstream(
             .ok_or("workspace not found")?;
         if !entry.kind.is_worktree() {
             return Err("Not a worktree workspace.".to_string());
+        }
+        if matches!(entry.worktree_kind.clone().unwrap_or(WorktreeKind::Git), WorktreeKind::Jj) {
+            return Err("Upstream rename is not available for JJ worktrees.".to_string());
         }
         let parent_id = entry
             .parent_id
@@ -1214,6 +1331,9 @@ pub(crate) async fn apply_worktree_changes(
             .ok_or("workspace not found")?;
         if !entry.kind.is_worktree() {
             return Err("Not a worktree workspace.".to_string());
+        }
+        if matches!(entry.worktree_kind.clone().unwrap_or(WorktreeKind::Git), WorktreeKind::Jj) {
+            return Err("Apply is not available for JJ worktrees.".to_string());
         }
         let parent_id = entry
             .parent_id
@@ -1352,6 +1472,7 @@ pub(crate) async fn update_workspace_settings(
         kind: entry_snapshot.kind,
         parent_id: entry_snapshot.parent_id,
         worktree: entry_snapshot.worktree,
+        worktree_kind: entry_snapshot.worktree_kind,
         settings: entry_snapshot.settings,
     })
 }
@@ -1386,6 +1507,7 @@ pub(crate) async fn update_workspace_codex_bin(
         kind: entry_snapshot.kind,
         parent_id: entry_snapshot.parent_id,
         worktree: entry_snapshot.worktree,
+        worktree_kind: entry_snapshot.worktree_kind,
         settings: entry_snapshot.settings,
     })
 }
@@ -1481,7 +1603,9 @@ mod tests {
         sanitize_worktree_name, sort_workspaces,
     };
     use crate::storage::{read_workspaces, write_workspaces};
-    use crate::types::{WorktreeInfo, WorkspaceEntry, WorkspaceInfo, WorkspaceKind, WorkspaceSettings};
+    use crate::types::{
+        WorktreeInfo, WorkspaceEntry, WorkspaceInfo, WorkspaceKind, WorkspaceSettings,
+    };
     use uuid::Uuid;
 
     fn workspace(name: &str, sort_order: Option<u32>) -> WorkspaceInfo {
@@ -1513,6 +1637,7 @@ mod tests {
             kind,
             parent_id,
             worktree,
+            worktree_kind: None,
             settings: WorkspaceSettings {
                 sidebar_collapsed: false,
                 sort_order,
@@ -1659,6 +1784,7 @@ mod tests {
             kind: WorkspaceKind::Main,
             parent_id: None,
             worktree: None,
+            worktree_kind: None,
             settings: WorkspaceSettings::default(),
         };
         let mut workspaces = HashMap::from([(id.clone(), entry)]);

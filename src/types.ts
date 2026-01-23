@@ -14,6 +14,8 @@ export type WorkspaceGroup = {
 
 export type WorkspaceKind = "main" | "worktree";
 
+export type WorktreeKind = "git" | "jj";
+
 export type WorktreeInfo = {
   branch: string;
 };
@@ -27,6 +29,7 @@ export type WorkspaceInfo = {
   kind?: WorkspaceKind;
   parentId?: string | null;
   worktree?: WorktreeInfo | null;
+  worktreeKind?: WorktreeKind | null;
   settings: WorkspaceSettings;
 };
 

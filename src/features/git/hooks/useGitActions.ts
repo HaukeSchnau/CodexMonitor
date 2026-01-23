@@ -29,7 +29,8 @@ export function useGitActions({
   const worktreeApplyTimerRef = useRef<number | null>(null);
   const workspaceIdRef = useRef<string | null>(activeWorkspace?.id ?? null);
   const workspaceId = activeWorkspace?.id ?? null;
-  const isWorktree = activeWorkspace?.kind === "worktree";
+  const isWorktree =
+    activeWorkspace?.kind === "worktree" && activeWorkspace?.worktreeKind !== "jj";
 
   useEffect(() => {
     workspaceIdRef.current = workspaceId;

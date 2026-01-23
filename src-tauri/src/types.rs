@@ -173,6 +173,8 @@ pub(crate) struct WorkspaceEntry {
     pub(crate) parent_id: Option<String>,
     #[serde(default)]
     pub(crate) worktree: Option<WorktreeInfo>,
+    #[serde(default, rename = "worktreeKind")]
+    pub(crate) worktree_kind: Option<WorktreeKind>,
     #[serde(default)]
     pub(crate) settings: WorkspaceSettings,
 }
@@ -190,6 +192,8 @@ pub(crate) struct WorkspaceInfo {
     pub(crate) parent_id: Option<String>,
     #[serde(default)]
     pub(crate) worktree: Option<WorktreeInfo>,
+    #[serde(default, rename = "worktreeKind")]
+    pub(crate) worktree_kind: Option<WorktreeKind>,
     #[serde(default)]
     pub(crate) settings: WorkspaceSettings,
 }
@@ -211,6 +215,13 @@ impl WorkspaceKind {
     pub(crate) fn is_worktree(&self) -> bool {
         matches!(self, WorkspaceKind::Worktree)
     }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum WorktreeKind {
+    Git,
+    Jj,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
