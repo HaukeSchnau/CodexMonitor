@@ -39,7 +39,18 @@ use types::{
 
 const DEFAULT_LISTEN_ADDR: &str = "127.0.0.1:4732";
 
-fn resolve_active_codex_environment(settings: &AppSettings) -> Option<(String, String)> {
+fn resolve_active_codex_environment(
+    settings: &AppSettings,
+    override_id: Option<&str>,
+    override_home: Option<&str>,
+) -> Option<(String, String)> {
+    if let (Some(id), Some(home)) = (override_id, override_home) {
+        let id = id.trim();
+        let home = home.trim();
+        if !id.is_empty() && !home.is_empty() {
+            return Some((id.to_string(), home.to_string()));
+        }
+    }
     let active_id = settings.active_codex_environment_id.as_ref()?;
     let env = settings
         .codex_environments
@@ -160,6 +171,8 @@ impl DaemonState {
         &self,
         path: String,
         codex_bin: Option<String>,
+        active_codex_environment_id: Option<String>,
+        active_codex_environment_home: Option<String>,
         client_version: String,
     ) -> Result<WorkspaceInfo, String> {
         if !PathBuf::from(&path).is_dir() {
@@ -185,7 +198,14 @@ impl DaemonState {
 
         let (default_bin, active_env) = {
             let settings = self.app_settings.lock().await;
-            (settings.codex_bin.clone(), resolve_active_codex_environment(&settings))
+            (
+                settings.codex_bin.clone(),
+                resolve_active_codex_environment(
+                    &settings,
+                    active_codex_environment_id.as_deref(),
+                    active_codex_environment_home.as_deref(),
+                ),
+            )
         };
 
         let legacy_home = codex_home::resolve_workspace_codex_home(&entry, None);
@@ -233,6 +253,8 @@ impl DaemonState {
         &self,
         parent_id: String,
         branch: String,
+        active_codex_environment_id: Option<String>,
+        active_codex_environment_home: Option<String>,
         client_version: String,
     ) -> Result<WorkspaceInfo, String> {
         let branch = branch.trim().to_string();
@@ -297,7 +319,14 @@ impl DaemonState {
 
         let (default_bin, active_env) = {
             let settings = self.app_settings.lock().await;
-            (settings.codex_bin.clone(), resolve_active_codex_environment(&settings))
+            (
+                settings.codex_bin.clone(),
+                resolve_active_codex_environment(
+                    &settings,
+                    active_codex_environment_id.as_deref(),
+                    active_codex_environment_home.as_deref(),
+                ),
+            )
         };
 
         let legacy_home = codex_home::resolve_workspace_codex_home(&entry, Some(&parent_entry.path));
@@ -570,7 +599,10 @@ impl DaemonState {
             self.kill_session(&entry_snapshot.id).await;
             let (default_bin, active_env) = {
                 let settings = self.app_settings.lock().await;
-                (settings.codex_bin.clone(), resolve_active_codex_environment(&settings))
+                (
+                    settings.codex_bin.clone(),
+                    resolve_active_codex_environment(&settings, None, None),
+                )
             };
             let legacy_home =
                 codex_home::resolve_workspace_codex_home(&entry_snapshot, Some(&parent.path));
@@ -787,6 +819,8 @@ impl DaemonState {
     async fn connect_workspace(
         &self,
         id: String,
+        active_codex_environment_id: Option<String>,
+        active_codex_environment_home: Option<String>,
         client_version: String,
     ) -> Result<WorkspaceInfo, String> {
         let entry = {
@@ -817,7 +851,86 @@ impl DaemonState {
 
         let (default_bin, active_env) = {
             let settings = self.app_settings.lock().await;
-            (settings.codex_bin.clone(), resolve_active_codex_environment(&settings))
+            (
+                settings.codex_bin.clone(),
+                resolve_active_codex_environment(
+                    &settings,
+                    active_codex_environment_id.as_deref(),
+                    active_codex_environment_home.as_deref(),
+                ),
+            )
+        };
+
+        let parent_path = if entry.kind.is_worktree() {
+            let workspaces = self.workspaces.lock().await;
+            entry
+                .parent_id
+                .as_deref()
+                .and_then(|parent_id| workspaces.get(parent_id))
+                .map(|parent| parent.path.clone())
+        } else {
+            None
+        };
+        let legacy_home = codex_home::resolve_workspace_codex_home(&entry, parent_path.as_deref());
+        let (codex_home, codex_environment_id) = if let Some(legacy_home) = legacy_home {
+            (Some(legacy_home), None)
+        } else if let Some((env_id, home)) = active_env {
+            (Some(PathBuf::from(home)), Some(env_id))
+        } else {
+            (None, None)
+        };
+        let session = spawn_workspace_session(
+            entry.clone(),
+            default_bin,
+            client_version,
+            self.event_sink.clone(),
+            codex_home,
+            codex_environment_id.clone(),
+        )
+        .await?;
+
+        self.sessions.lock().await.insert(id, session);
+        Ok(WorkspaceInfo {
+            id: entry.id,
+            name: entry.name,
+            path: entry.path,
+            connected: true,
+            codex_bin: entry.codex_bin,
+            codex_environment_id,
+            kind: entry.kind,
+            parent_id: entry.parent_id,
+            worktree: entry.worktree,
+            settings: entry.settings,
+        })
+    }
+
+    async fn restart_workspace(
+        &self,
+        id: String,
+        active_codex_environment_id: Option<String>,
+        active_codex_environment_home: Option<String>,
+        client_version: String,
+    ) -> Result<WorkspaceInfo, String> {
+        let entry = {
+            let workspaces = self.workspaces.lock().await;
+            workspaces
+                .get(&id)
+                .cloned()
+                .ok_or("workspace not found")?
+        };
+
+        self.kill_session(&id).await;
+
+        let (default_bin, active_env) = {
+            let settings = self.app_settings.lock().await;
+            (
+                settings.codex_bin.clone(),
+                resolve_active_codex_environment(
+                    &settings,
+                    active_codex_environment_id.as_deref(),
+                    active_codex_environment_home.as_deref(),
+                ),
+            )
         };
 
         let parent_path = if entry.kind.is_worktree() {
@@ -1672,20 +1785,45 @@ async fn handle_rpc_request(
         "add_workspace" => {
             let path = parse_string(&params, "path")?;
             let codex_bin = parse_optional_string(&params, "codex_bin");
-            let workspace = state.add_workspace(path, codex_bin, client_version).await?;
+            let active_env_id = parse_optional_string(&params, "activeCodexEnvironmentId");
+            let active_env_home = parse_optional_string(&params, "activeCodexEnvironmentHome");
+            let workspace = state
+                .add_workspace(path, codex_bin, active_env_id, active_env_home, client_version)
+                .await?;
             serde_json::to_value(workspace).map_err(|err| err.to_string())
         }
         "add_worktree" => {
             let parent_id = parse_string(&params, "parentId")?;
             let branch = parse_string(&params, "branch")?;
+            let active_env_id = parse_optional_string(&params, "activeCodexEnvironmentId");
+            let active_env_home = parse_optional_string(&params, "activeCodexEnvironmentHome");
             let workspace = state
-                .add_worktree(parent_id, branch, client_version)
+                .add_worktree(
+                    parent_id,
+                    branch,
+                    active_env_id,
+                    active_env_home,
+                    client_version,
+                )
                 .await?;
             serde_json::to_value(workspace).map_err(|err| err.to_string())
         }
         "connect_workspace" => {
             let id = parse_string(&params, "id")?;
-            let workspace = state.connect_workspace(id, client_version).await?;
+            let active_env_id = parse_optional_string(&params, "activeCodexEnvironmentId");
+            let active_env_home = parse_optional_string(&params, "activeCodexEnvironmentHome");
+            let workspace = state
+                .connect_workspace(id, active_env_id, active_env_home, client_version)
+                .await?;
+            serde_json::to_value(workspace).map_err(|err| err.to_string())
+        }
+        "restart_workspace" => {
+            let id = parse_string(&params, "id")?;
+            let active_env_id = parse_optional_string(&params, "activeCodexEnvironmentId");
+            let active_env_home = parse_optional_string(&params, "activeCodexEnvironmentHome");
+            let workspace = state
+                .restart_workspace(id, active_env_id, active_env_home, client_version)
+                .await?;
             serde_json::to_value(workspace).map_err(|err| err.to_string())
         }
         "remove_workspace" => {

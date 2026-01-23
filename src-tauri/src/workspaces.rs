@@ -23,7 +23,18 @@ use crate::types::{
 };
 use crate::utils::normalize_git_path;
 
-fn resolve_active_codex_environment(settings: &AppSettings) -> Option<(String, String)> {
+fn resolve_active_codex_environment(
+    settings: &AppSettings,
+    override_id: Option<&str>,
+    override_home: Option<&str>,
+) -> Option<(String, String)> {
+    if let (Some(id), Some(home)) = (override_id, override_home) {
+        let id = id.trim();
+        let home = home.trim();
+        if !id.is_empty() && !home.is_empty() {
+            return Some((id.to_string(), home.to_string()));
+        }
+    }
     let active_id = settings.active_codex_environment_id.as_ref()?;
     let env = settings
         .codex_environments
@@ -529,6 +540,8 @@ pub(crate) async fn is_workspace_path_dir(
 pub(crate) async fn add_workspace(
     path: String,
     codex_bin: Option<String>,
+    active_codex_environment_id: Option<String>,
+    active_codex_environment_home: Option<String>,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<WorkspaceInfo, String> {
@@ -537,7 +550,12 @@ pub(crate) async fn add_workspace(
             &*state,
             app,
             "add_workspace",
-            json!({ "path": path, "codex_bin": codex_bin }),
+            json!({
+                "path": path,
+                "codex_bin": codex_bin,
+                "activeCodexEnvironmentId": active_codex_environment_id,
+                "activeCodexEnvironmentHome": active_codex_environment_home
+            }),
         )
         .await?;
         return serde_json::from_value(response).map_err(|err| err.to_string());
@@ -565,7 +583,14 @@ pub(crate) async fn add_workspace(
 
     let (default_bin, active_env) = {
         let settings = state.app_settings.lock().await;
-        (settings.codex_bin.clone(), resolve_active_codex_environment(&settings))
+        (
+            settings.codex_bin.clone(),
+            resolve_active_codex_environment(
+                &settings,
+                active_codex_environment_id.as_deref(),
+                active_codex_environment_home.as_deref(),
+            ),
+        )
     };
     let legacy_home = resolve_workspace_codex_home(&entry, None);
     let (codex_home, codex_environment_id) = if let Some(legacy_home) = legacy_home {
@@ -624,6 +649,8 @@ pub(crate) async fn add_clone(
     source_workspace_id: String,
     copy_name: String,
     copies_folder: String,
+    active_codex_environment_id: Option<String>,
+    active_codex_environment_home: Option<String>,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<WorkspaceInfo, String> {
@@ -698,7 +725,14 @@ pub(crate) async fn add_clone(
 
     let (default_bin, active_env) = {
         let settings = state.app_settings.lock().await;
-        (settings.codex_bin.clone(), resolve_active_codex_environment(&settings))
+        (
+            settings.codex_bin.clone(),
+            resolve_active_codex_environment(
+                &settings,
+                active_codex_environment_id.as_deref(),
+                active_codex_environment_home.as_deref(),
+            ),
+        )
     };
     let legacy_home = resolve_workspace_codex_home(&entry, None);
     let (codex_home, codex_environment_id) = if let Some(legacy_home) = legacy_home {
@@ -764,6 +798,8 @@ pub(crate) async fn add_clone(
 pub(crate) async fn add_worktree(
     parent_id: String,
     branch: String,
+    active_codex_environment_id: Option<String>,
+    active_codex_environment_home: Option<String>,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<WorkspaceInfo, String> {
@@ -827,7 +863,14 @@ pub(crate) async fn add_worktree(
 
     let (default_bin, active_env) = {
         let settings = state.app_settings.lock().await;
-        (settings.codex_bin.clone(), resolve_active_codex_environment(&settings))
+        (
+            settings.codex_bin.clone(),
+            resolve_active_codex_environment(
+                &settings,
+                active_codex_environment_id.as_deref(),
+                active_codex_environment_home.as_deref(),
+            ),
+        )
     };
     let legacy_home = resolve_workspace_codex_home(&entry, Some(&parent_entry.path));
     let (codex_home, codex_environment_id) = if let Some(legacy_home) = legacy_home {
@@ -1128,7 +1171,10 @@ pub(crate) async fn rename_worktree(
         }
         let (default_bin, active_env) = {
             let settings = state.app_settings.lock().await;
-            (settings.codex_bin.clone(), resolve_active_codex_environment(&settings))
+            (
+                settings.codex_bin.clone(),
+                resolve_active_codex_environment(&settings, None, None),
+            )
         };
         let legacy_home = resolve_workspace_codex_home(&entry_snapshot, Some(&parent.path));
         let (codex_home, codex_environment_id) = if let Some(legacy_home) = legacy_home {
@@ -1486,12 +1532,23 @@ pub(crate) async fn update_workspace_codex_bin(
 #[tauri::command]
 pub(crate) async fn connect_workspace(
     id: String,
+    active_codex_environment_id: Option<String>,
+    active_codex_environment_home: Option<String>,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<WorkspaceInfo, String> {
     if remote_backend::is_remote_mode(&*state).await {
         let response =
-            remote_backend::call_remote(&*state, app, "connect_workspace", json!({ "id": id }))
+            remote_backend::call_remote(
+                &*state,
+                app,
+                "connect_workspace",
+                json!({
+                    "id": id,
+                    "activeCodexEnvironmentId": active_codex_environment_id,
+                    "activeCodexEnvironmentHome": active_codex_environment_home,
+                }),
+            )
                 .await?;
         return serde_json::from_value(response).map_err(|err| err.to_string());
     }
@@ -1532,7 +1589,14 @@ pub(crate) async fn connect_workspace(
 
     let (default_bin, active_env) = {
         let settings = state.app_settings.lock().await;
-        (settings.codex_bin.clone(), resolve_active_codex_environment(&settings))
+        (
+            settings.codex_bin.clone(),
+            resolve_active_codex_environment(
+                &settings,
+                active_codex_environment_id.as_deref(),
+                active_codex_environment_home.as_deref(),
+            ),
+        )
     };
     let legacy_home = resolve_workspace_codex_home(&entry, parent_path.as_deref());
     let (codex_home, codex_environment_id) = if let Some(legacy_home) = legacy_home {
@@ -1555,6 +1619,93 @@ pub(crate) async fn connect_workspace(
         .lock()
         .await
         .insert(entry.id.clone(), session);
+    Ok(WorkspaceInfo {
+        id: entry.id,
+        name: entry.name,
+        path: entry.path,
+        codex_bin: entry.codex_bin,
+        codex_environment_id,
+        connected: true,
+        kind: entry.kind,
+        parent_id: entry.parent_id,
+        worktree: entry.worktree,
+        settings: entry.settings,
+    })
+}
+
+#[tauri::command]
+pub(crate) async fn restart_workspace(
+    id: String,
+    active_codex_environment_id: Option<String>,
+    active_codex_environment_home: Option<String>,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<WorkspaceInfo, String> {
+    if remote_backend::is_remote_mode(&*state).await {
+        let response = remote_backend::call_remote(
+            &*state,
+            app,
+            "restart_workspace",
+            json!({
+                "id": id,
+                "activeCodexEnvironmentId": active_codex_environment_id,
+                "activeCodexEnvironmentHome": active_codex_environment_home,
+            }),
+        )
+        .await?;
+        return serde_json::from_value(response).map_err(|err| err.to_string());
+    }
+
+    let (entry, parent_path) = {
+        let workspaces = state.workspaces.lock().await;
+        workspaces
+            .get(&id)
+            .cloned()
+            .map(|entry| {
+                let parent_path = entry
+                    .parent_id
+                    .as_ref()
+                    .and_then(|parent_id| workspaces.get(parent_id))
+                    .map(|parent| parent.path.clone());
+                (entry, parent_path)
+            })
+            .ok_or("workspace not found")?
+    };
+
+    if let Some(session) = state.sessions.lock().await.remove(&id) {
+        let mut child = session.child.lock().await;
+        let _ = child.kill().await;
+    }
+
+    let (default_bin, active_env) = {
+        let settings = state.app_settings.lock().await;
+        (
+            settings.codex_bin.clone(),
+            resolve_active_codex_environment(
+                &settings,
+                active_codex_environment_id.as_deref(),
+                active_codex_environment_home.as_deref(),
+            ),
+        )
+    };
+    let legacy_home = resolve_workspace_codex_home(&entry, parent_path.as_deref());
+    let (codex_home, codex_environment_id) = if let Some(legacy_home) = legacy_home {
+        (Some(legacy_home), None)
+    } else if let Some((env_id, home)) = active_env {
+        (Some(PathBuf::from(home)), Some(env_id))
+    } else {
+        (None, None)
+    };
+    let session = spawn_workspace_session(
+        entry.clone(),
+        default_bin,
+        app,
+        codex_home,
+        codex_environment_id.clone(),
+    )
+    .await?;
+    state.sessions.lock().await.insert(entry.id.clone(), session);
+
     Ok(WorkspaceInfo {
         id: entry.id,
         name: entry.name,

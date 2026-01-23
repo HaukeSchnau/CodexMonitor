@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import {
   addWorkspace,
+  restartWorkspace,
   getGitHubIssues,
   getGitLog,
   getGitStatus,
@@ -29,6 +30,21 @@ describe("tauri invoke wrappers", () => {
     expect(invokeMock).toHaveBeenCalledWith("add_workspace", {
       path: "/tmp/project",
       codex_bin: null,
+      activeCodexEnvironmentId: null,
+      activeCodexEnvironmentHome: null,
+    });
+  });
+
+  it("passes environment overrides for restartWorkspace", async () => {
+    const invokeMock = vi.mocked(invoke);
+    invokeMock.mockResolvedValueOnce({ id: "ws-1" });
+
+    await restartWorkspace("ws-1", { id: "env-1", codexHome: "/tmp/codex" });
+
+    expect(invokeMock).toHaveBeenCalledWith("restart_workspace", {
+      id: "ws-1",
+      activeCodexEnvironmentId: "env-1",
+      activeCodexEnvironmentHome: "/tmp/codex",
     });
   });
 

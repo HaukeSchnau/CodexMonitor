@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import Check from "lucide-react/dist/esm/icons/check";
 import Copy from "lucide-react/dist/esm/icons/copy";
+import RotateCcw from "lucide-react/dist/esm/icons/rotate-ccw";
 import Terminal from "lucide-react/dist/esm/icons/terminal";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import type { BranchInfo, WorkspaceInfo } from "../../../types";
@@ -22,7 +23,9 @@ type MainHeaderProps = {
   canCopyThread?: boolean;
   onCopyThread?: () => void | Promise<void>;
   onToggleTerminal: () => void;
+  onRestartWorkspace?: () => void;
   isTerminalOpen: boolean;
+  isRestartingWorkspace?: boolean;
   showTerminalButton?: boolean;
   extraActionsNode?: ReactNode;
   worktreeRename?: {
@@ -60,7 +63,9 @@ export function MainHeader({
   canCopyThread = false,
   onCopyThread,
   onToggleTerminal,
+  onRestartWorkspace,
   isTerminalOpen,
+  isRestartingWorkspace = false,
   showTerminalButton = true,
   extraActionsNode,
   worktreeRename,
@@ -410,6 +415,19 @@ export function MainHeader({
       </div>
       <div className="main-header-actions">
         <OpenAppMenu path={resolvedWorktreePath} />
+        {onRestartWorkspace && (
+          <button
+            type="button"
+            className="ghost main-header-action"
+            onClick={onRestartWorkspace}
+            data-tauri-drag-region="false"
+            aria-label="Relaunch app server"
+            title="Relaunch app server"
+            disabled={isRestartingWorkspace}
+          >
+            <RotateCcw size={14} aria-hidden />
+          </button>
+        )}
         {showTerminalButton && (
           <button
             type="button"

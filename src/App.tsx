@@ -164,6 +164,7 @@ function MainApp() {
     addCloneAgent,
     addWorktreeAgent,
     connectWorkspace,
+    restartWorkspace,
     markWorkspaceConnected,
     updateWorkspaceSettings,
     updateWorkspaceCodexBin,
@@ -184,6 +185,7 @@ function MainApp() {
     addDebugEntry,
     queueSaveSettings,
   });
+  const [restartingWorkspaceId, setRestartingWorkspaceId] = useState<string | null>(null);
   const handleWorkspaceConnected = useCallback(
     (workspaceId: string) => {
       markWorkspaceConnected(workspaceId);
@@ -638,6 +640,36 @@ function MainApp() {
     activeItems,
     onDebug: addDebugEntry,
   });
+
+  const handleRestartWorkspace = useCallback(async () => {
+    if (!activeWorkspace) {
+      return;
+    }
+    setRestartingWorkspaceId(activeWorkspace.id);
+    try {
+      const workspace = await restartWorkspace(activeWorkspace);
+      resetWorkspaceThreads(workspace.id);
+      await listThreadsForWorkspace(workspace);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      addDebugEntry({
+        id: `${Date.now()}-client-restart-workspace-error`,
+        timestamp: Date.now(),
+        source: "error",
+        label: "workspace/restart error",
+        payload: message,
+      });
+      alert(`Failed to relaunch app server.\n\n${message}`);
+    } finally {
+      setRestartingWorkspaceId(null);
+    }
+  }, [
+    activeWorkspace,
+    addDebugEntry,
+    listThreadsForWorkspace,
+    resetWorkspaceThreads,
+    restartWorkspace,
+  ]);
 
   const {
     renamePrompt,
@@ -1455,7 +1487,10 @@ function MainApp() {
     onCreateBranch: handleCreateBranch,
     onCopyThread: handleCopyThread,
     onToggleTerminal: handleToggleTerminal,
+    onRestartWorkspace: activeWorkspace ? handleRestartWorkspace : undefined,
     showTerminalButton: !isCompact,
+    isRestartingWorkspace:
+      activeWorkspace?.id ? restartingWorkspaceId === activeWorkspace.id : false,
     mainHeaderActionsNode: (
       <MainHeaderActions
         centerMode={centerMode}

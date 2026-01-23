@@ -17,6 +17,7 @@ import { TabBar } from "../../app/components/TabBar";
 import { TabletNav } from "../../app/components/TabletNav";
 import { TerminalDock } from "../../terminal/components/TerminalDock";
 import { TerminalPanel } from "../../terminal/components/TerminalPanel";
+import { resolveEnvironmentLabel } from "../../../utils/workspaceEnvironment";
 import type {
   AccessMode,
   ApprovalRequest,
@@ -178,7 +179,9 @@ type LayoutNodesOptions = {
   onCreateBranch: (name: string) => Promise<void>;
   onCopyThread: () => void | Promise<void>;
   onToggleTerminal: () => void;
+  onRestartWorkspace?: () => void;
   showTerminalButton: boolean;
+  isRestartingWorkspace?: boolean;
   mainHeaderActionsNode?: ReactNode;
   centerMode: "chat" | "diff";
   onExitDiff: () => void;
@@ -552,15 +555,10 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
     />
   );
 
-  const activeEnvironmentLabel = (() => {
-    const envId = options.activeWorkspace?.codexEnvironmentId ?? null;
-    if (!envId) {
-      return null;
-    }
-    const match = options.codexEnvironments.find((env) => env.id === envId);
-    const name = match?.name.trim() ?? "";
-    return name ? name : null;
-  })();
+  const activeEnvironmentLabel = resolveEnvironmentLabel(
+    options.activeWorkspace?.codexEnvironmentId ?? null,
+    options.codexEnvironments,
+  );
 
   const mainHeaderNode = options.activeWorkspace ? (
     <MainHeader
@@ -579,7 +577,9 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
       canCopyThread={options.activeItems.length > 0}
       onCopyThread={options.onCopyThread}
       onToggleTerminal={options.onToggleTerminal}
+      onRestartWorkspace={options.onRestartWorkspace}
       isTerminalOpen={options.terminalOpen}
+      isRestartingWorkspace={options.isRestartingWorkspace}
       showTerminalButton={options.showTerminalButton}
       extraActionsNode={options.mainHeaderActionsNode}
     />

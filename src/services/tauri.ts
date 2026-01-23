@@ -52,8 +52,14 @@ export async function listWorkspaces(): Promise<WorkspaceInfo[]> {
 export async function addWorkspace(
   path: string,
   codex_bin: string | null,
+  activeEnvironment: { id: string; codexHome: string } | null = null,
 ): Promise<WorkspaceInfo> {
-  return invoke<WorkspaceInfo>("add_workspace", { path, codex_bin });
+  return invoke<WorkspaceInfo>("add_workspace", {
+    path,
+    codex_bin,
+    activeCodexEnvironmentId: activeEnvironment?.id ?? null,
+    activeCodexEnvironmentHome: activeEnvironment?.codexHome ?? null,
+  });
 }
 
 export async function isWorkspacePathDir(path: string): Promise<boolean> {
@@ -64,19 +70,28 @@ export async function addClone(
   sourceWorkspaceId: string,
   copiesFolder: string,
   copyName: string,
+  activeEnvironment: { id: string; codexHome: string } | null = null,
 ): Promise<WorkspaceInfo> {
   return invoke<WorkspaceInfo>("add_clone", {
     sourceWorkspaceId,
     copiesFolder,
     copyName,
+    activeCodexEnvironmentId: activeEnvironment?.id ?? null,
+    activeCodexEnvironmentHome: activeEnvironment?.codexHome ?? null,
   });
 }
 
 export async function addWorktree(
   parentId: string,
   branch: string,
+  activeEnvironment: { id: string; codexHome: string } | null = null,
 ): Promise<WorkspaceInfo> {
-  return invoke<WorkspaceInfo>("add_worktree", { parentId, branch });
+  return invoke<WorkspaceInfo>("add_worktree", {
+    parentId,
+    branch,
+    activeCodexEnvironmentId: activeEnvironment?.id ?? null,
+    activeCodexEnvironmentHome: activeEnvironment?.codexHome ?? null,
+  });
 }
 
 export async function updateWorkspaceSettings(
@@ -124,8 +139,26 @@ export async function openWorkspaceIn(path: string, app: string): Promise<void> 
   return invoke("open_workspace_in", { path, app });
 }
 
-export async function connectWorkspace(id: string): Promise<WorkspaceInfo> {
-  return invoke<WorkspaceInfo>("connect_workspace", { id });
+export async function connectWorkspace(
+  id: string,
+  activeEnvironment: { id: string; codexHome: string } | null = null,
+): Promise<WorkspaceInfo> {
+  return invoke<WorkspaceInfo>("connect_workspace", {
+    id,
+    activeCodexEnvironmentId: activeEnvironment?.id ?? null,
+    activeCodexEnvironmentHome: activeEnvironment?.codexHome ?? null,
+  });
+}
+
+export async function restartWorkspace(
+  id: string,
+  activeEnvironment: { id: string; codexHome: string } | null = null,
+): Promise<WorkspaceInfo> {
+  return invoke<WorkspaceInfo>("restart_workspace", {
+    id,
+    activeCodexEnvironmentId: activeEnvironment?.id ?? null,
+    activeCodexEnvironmentHome: activeEnvironment?.codexHome ?? null,
+  });
 }
 
 export async function startThread(workspaceId: string) {

@@ -5,6 +5,7 @@ import type { WorkspaceInfo } from "../../../types";
 import {
   addWorkspace,
   listWorkspaces,
+  restartWorkspace,
   renameWorktree,
   renameWorktreeUpstream,
 } from "../../../services/tauri";
@@ -18,6 +19,7 @@ vi.mock("../../../services/tauri", () => ({
   addWorkspace: vi.fn(),
   addWorktree: vi.fn(),
   connectWorkspace: vi.fn(),
+  restartWorkspace: vi.fn(),
   isWorkspacePathDir: vi.fn(),
   pickWorkspacePath: vi.fn(),
   removeWorkspace: vi.fn(),
@@ -176,8 +178,43 @@ describe("useWorkspaces.addWorkspaceFromPath", () => {
       await result.current.addWorkspaceFromPath("/tmp/repo");
     });
 
-    expect(addWorkspaceMock).toHaveBeenCalledWith("/tmp/repo", null);
+    expect(addWorkspaceMock).toHaveBeenCalledWith("/tmp/repo", null, null);
     expect(result.current.workspaces).toHaveLength(1);
     expect(result.current.activeWorkspaceId).toBe("workspace-1");
+  });
+});
+
+describe("useWorkspaces.restartWorkspace", () => {
+  it("restarts and updates the workspace entry", async () => {
+    const listWorkspacesMock = vi.mocked(listWorkspaces);
+    const restartWorkspaceMock = vi.mocked(restartWorkspace);
+    const workspace: WorkspaceInfo = {
+      id: "workspace-1",
+      name: "repo",
+      path: "/tmp/repo",
+      connected: true,
+      kind: "main",
+      parentId: null,
+      worktree: null,
+      settings: { sidebarCollapsed: false },
+    };
+    listWorkspacesMock.mockResolvedValue([workspace]);
+    restartWorkspaceMock.mockResolvedValue({
+      ...workspace,
+      codexEnvironmentId: "env-1",
+    });
+
+    const { result } = renderHook(() => useWorkspaces());
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await result.current.restartWorkspace(workspace);
+    });
+
+    expect(restartWorkspaceMock).toHaveBeenCalledWith("workspace-1", null);
+    expect(result.current.workspaces[0]?.codexEnvironmentId).toBe("env-1");
   });
 });

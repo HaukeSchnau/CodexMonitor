@@ -13,6 +13,7 @@ import {
   addWorkspace as addWorkspaceService,
   addWorktree as addWorktreeService,
   connectWorkspace as connectWorkspaceService,
+  restartWorkspace as restartWorkspaceService,
   isWorkspacePathDir as isWorkspacePathDirService,
   listWorkspaces,
   pickWorkspacePath,
@@ -23,6 +24,7 @@ import {
   updateWorkspaceCodexBin as updateWorkspaceCodexBinService,
   updateWorkspaceSettings as updateWorkspaceSettingsService,
 } from "../../../services/tauri";
+import { resolveActiveEnvironmentSelection } from "../../../utils/workspaceEnvironment";
 
 const GROUP_ID_RANDOM_MODULUS = 1_000_000;
 const RESERVED_GROUP_NAME = "Ungrouped";
@@ -82,6 +84,14 @@ export function useWorkspaces(options: UseWorkspacesOptions = {}) {
     () => new Set(),
   );
   const { onDebug, defaultCodexBin, appSettings, onUpdateAppSettings } = options;
+  const activeCodexEnvironment = useMemo(
+    () =>
+      resolveActiveEnvironmentSelection(
+        appSettings?.activeCodexEnvironmentId ?? null,
+        appSettings?.codexEnvironments ?? [],
+      ),
+    [appSettings?.activeCodexEnvironmentId, appSettings?.codexEnvironments],
+  );
 
   const refreshWorkspaces = useCallback(async () => {
     try {
@@ -224,7 +234,11 @@ export function useWorkspaces(options: UseWorkspacesOptions = {}) {
         payload: { path: selection },
       });
       try {
-        const workspace = await addWorkspaceService(selection, defaultCodexBin ?? null);
+        const workspace = await addWorkspaceService(
+          selection,
+          defaultCodexBin ?? null,
+          activeCodexEnvironment,
+        );
         setWorkspaces((prev) => [...prev, workspace]);
         setActiveWorkspaceId(workspace.id);
         Sentry.metrics.count("workspace_added", 1, {
@@ -245,7 +259,7 @@ export function useWorkspaces(options: UseWorkspacesOptions = {}) {
         throw error;
       }
     },
-    [defaultCodexBin, onDebug],
+    [activeCodexEnvironment, defaultCodexBin, onDebug],
   );
 
   const addWorkspace = useCallback(async () => {
@@ -283,7 +297,11 @@ export function useWorkspaces(options: UseWorkspacesOptions = {}) {
       payload: { parentId: parent.id, branch: trimmed },
     });
     try {
-      const workspace = await addWorktreeService(parent.id, trimmed);
+      const workspace = await addWorktreeService(
+        parent.id,
+        trimmed,
+        activeCodexEnvironment,
+      );
       setWorkspaces((prev) => [...prev, workspace]);
       setActiveWorkspaceId(workspace.id);
       Sentry.metrics.count("worktree_agent_created", 1, {
@@ -330,7 +348,12 @@ export function useWorkspaces(options: UseWorkspacesOptions = {}) {
       },
     });
     try {
-      const workspace = await addCloneService(source.id, trimmedFolder, trimmedName);
+    const workspace = await addCloneService(
+      source.id,
+      trimmedFolder,
+      trimmedName,
+      activeCodexEnvironment,
+    );
       setWorkspaces((prev) => [...prev, workspace]);
       setActiveWorkspaceId(workspace.id);
       Sentry.metrics.count("clone_agent_created", 1, {
@@ -361,7 +384,10 @@ export function useWorkspaces(options: UseWorkspacesOptions = {}) {
       payload: { workspaceId: entry.id, path: entry.path },
     });
     try {
-      const workspace = await connectWorkspaceService(entry.id);
+      const workspace = await connectWorkspaceService(
+        entry.id,
+        activeCodexEnvironment,
+      );
       setWorkspaces((prev) =>
         prev.map((item) => (item.id === workspace.id ? workspace : item)),
       );
@@ -372,6 +398,35 @@ export function useWorkspaces(options: UseWorkspacesOptions = {}) {
         timestamp: Date.now(),
         source: "error",
         label: "workspace/connect error",
+        payload: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+  }
+
+  async function restartWorkspace(entry: WorkspaceInfo) {
+    onDebug?.({
+      id: `${Date.now()}-client-restart-workspace`,
+      timestamp: Date.now(),
+      source: "client",
+      label: "workspace/restart",
+      payload: { workspaceId: entry.id, path: entry.path },
+    });
+    try {
+      const workspace = await restartWorkspaceService(
+        entry.id,
+        activeCodexEnvironment,
+      );
+      setWorkspaces((prev) =>
+        prev.map((item) => (item.id === workspace.id ? workspace : item)),
+      );
+      return workspace;
+    } catch (error) {
+      onDebug?.({
+        id: `${Date.now()}-client-restart-workspace-error`,
+        timestamp: Date.now(),
+        source: "error",
+        label: "workspace/restart error",
         payload: error instanceof Error ? error.message : String(error),
       });
       throw error;
@@ -832,6 +887,7 @@ export function useWorkspaces(options: UseWorkspacesOptions = {}) {
     addCloneAgent,
     addWorktreeAgent,
     connectWorkspace,
+    restartWorkspace,
     markWorkspaceConnected,
     updateWorkspaceSettings,
     updateWorkspaceCodexBin,
