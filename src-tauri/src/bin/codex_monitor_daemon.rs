@@ -269,18 +269,15 @@ impl DaemonState {
         } else {
             let repo_root =
                 find_jj_root(&repo_path).ok_or("JJ repo not found for parent workspace.")?;
-            if let Err(error) = run_jj_command(
-                &repo_root,
-                &["workspace", "add", &branch, "--path", &worktree_path_string],
-            )
-            .await
-            {
+            let args = jj_workspace_add_args(&branch, &worktree_path_string);
+            let args_ref: Vec<&str> = args.iter().map(String::as_str).collect();
+            if let Err(error) = run_jj_command(&repo_root, &args_ref).await {
                 let _ = tokio::fs::remove_dir_all(&worktree_path).await;
                 return Err(error);
             }
             if create_bookmark {
                 if let Err(error) =
-                    run_jj_command(&repo_root, &["bookmark", "create", &branch]).await
+                    run_jj_command(&worktree_path, &["bookmark", "create", &branch]).await
                 {
                     let _ = run_jj_command(&repo_root, &["workspace", "forget", &branch]).await;
                     let _ = tokio::fs::remove_dir_all(&worktree_path).await;
@@ -519,44 +516,52 @@ impl DaemonState {
             return Err("Branch name is unchanged.".to_string());
         }
 
-        let parent_root = PathBuf::from(&parent.path);
+        let worktree_kind = entry.worktree_kind.clone().unwrap_or(WorktreeKind::Git);
+        let (final_branch, next_path_string) = if matches!(worktree_kind, WorktreeKind::Jj) {
+            let entry_path = PathBuf::from(&entry.path);
+            run_jj_command(&entry_path, &["workspace", "rename", trimmed]).await?;
+            (trimmed.to_string(), entry.path.clone())
+        } else {
+            let parent_root = PathBuf::from(&parent.path);
 
-        let (final_branch, _was_suffixed) =
-            unique_branch_name(&parent_root, trimmed, None).await?;
-        if final_branch == old_branch {
-            return Err("Branch name is unchanged.".to_string());
-        }
-
-        run_git_command(
-            &parent_root,
-            &["branch", "-m", &old_branch, &final_branch],
-        )
-        .await?;
-
-        let worktree_root = self.data_dir.join("worktrees").join(&parent.id);
-        std::fs::create_dir_all(&worktree_root)
-            .map_err(|e| format!("Failed to create worktree directory: {e}"))?;
-
-        let safe_name = sanitize_worktree_name(&final_branch);
-        let current_path = PathBuf::from(&entry.path);
-        let next_path =
-            unique_worktree_path_for_rename(&worktree_root, &safe_name, &current_path)?;
-        let next_path_string = next_path.to_string_lossy().to_string();
-        if next_path_string != entry.path {
-            if let Err(error) = run_git_command(
-                &parent_root,
-                &["worktree", "move", &entry.path, &next_path_string],
-            )
-            .await
-            {
-                let _ = run_git_command(
-                    &parent_root,
-                    &["branch", "-m", &final_branch, &old_branch],
-                )
-                .await;
-                return Err(error);
+            let (final_branch, _was_suffixed) =
+                unique_branch_name(&parent_root, trimmed, None).await?;
+            if final_branch == old_branch {
+                return Err("Branch name is unchanged.".to_string());
             }
-        }
+
+            run_git_command(
+                &parent_root,
+                &["branch", "-m", &old_branch, &final_branch],
+            )
+            .await?;
+
+            let worktree_root = self.data_dir.join("worktrees").join(&parent.id);
+            std::fs::create_dir_all(&worktree_root)
+                .map_err(|e| format!("Failed to create worktree directory: {e}"))?;
+
+            let safe_name = sanitize_worktree_name(&final_branch);
+            let current_path = PathBuf::from(&entry.path);
+            let next_path =
+                unique_worktree_path_for_rename(&worktree_root, &safe_name, &current_path)?;
+            let next_path_string = next_path.to_string_lossy().to_string();
+            if next_path_string != entry.path {
+                if let Err(error) = run_git_command(
+                    &parent_root,
+                    &["worktree", "move", &entry.path, &next_path_string],
+                )
+                .await
+                {
+                    let _ = run_git_command(
+                        &parent_root,
+                        &["branch", "-m", &final_branch, &old_branch],
+                    )
+                    .await;
+                    return Err(error);
+                }
+            }
+            (final_branch, next_path_string)
+        };
 
         let (entry_snapshot, list) = {
             let mut workspaces = self.workspaces.lock().await;
@@ -1435,6 +1440,16 @@ fn resolve_worktree_kind(entry_path: &PathBuf) -> WorktreeKind {
     } else {
         WorktreeKind::Git
     }
+}
+
+fn jj_workspace_add_args(workspace_name: &str, destination: &str) -> Vec<String> {
+    vec![
+        "workspace".to_string(),
+        "add".to_string(),
+        "--name".to_string(),
+        workspace_name.to_string(),
+        destination.to_string(),
+    ]
 }
 
 fn unique_worktree_path(base_dir: &PathBuf, name: &str) -> Result<PathBuf, String> {

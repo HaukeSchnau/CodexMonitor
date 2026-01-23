@@ -503,6 +503,16 @@ fn resolve_worktree_kind(entry_path: &PathBuf) -> WorktreeKind {
     }
 }
 
+fn jj_workspace_add_args(workspace_name: &str, destination: &str) -> Vec<String> {
+    vec![
+        "workspace".to_string(),
+        "add".to_string(),
+        "--name".to_string(),
+        workspace_name.to_string(),
+        destination.to_string(),
+    ]
+}
+
 #[tauri::command]
 pub(crate) async fn list_workspaces(
     state: State<'_, AppState>,
@@ -821,18 +831,16 @@ pub(crate) async fn add_worktree(
     } else {
         let repo_root =
             find_jj_root(&parent_path).ok_or("JJ repo not found for parent workspace.")?;
-        if let Err(error) = run_jj_command(
-            &repo_root,
-            &["workspace", "add", &branch, "--path", &worktree_path_string],
-        )
-        .await
+        let args = jj_workspace_add_args(&branch, &worktree_path_string);
+        let args_ref: Vec<&str> = args.iter().map(String::as_str).collect();
+        if let Err(error) = run_jj_command(&repo_root, &args_ref).await
         {
             let _ = tokio::fs::remove_dir_all(&worktree_path).await;
             return Err(error);
         }
         if create_bookmark {
             if let Err(error) =
-                run_jj_command(&repo_root, &["bookmark", "create", &branch]).await
+                run_jj_command(&worktree_path, &["bookmark", "create", &branch]).await
             {
                 let _ = run_jj_command(&repo_root, &["workspace", "forget", &branch]).await;
                 let _ = tokio::fs::remove_dir_all(&worktree_path).await;
@@ -1095,10 +1103,8 @@ pub(crate) async fn rename_worktree(
 
     let worktree_kind = entry.worktree_kind.clone().unwrap_or(WorktreeKind::Git);
     let (final_branch, next_path_string) = if matches!(worktree_kind, WorktreeKind::Jj) {
-        let parent_path = PathBuf::from(&parent.path);
-        let repo_root =
-            find_jj_root(&parent_path).ok_or("JJ repo not found for parent workspace.")?;
-        run_jj_command(&repo_root, &["workspace", "rename", &old_branch, trimmed]).await?;
+        let entry_path = PathBuf::from(&entry.path);
+        run_jj_command(&entry_path, &["workspace", "rename", trimmed]).await?;
         (trimmed.to_string(), entry.path.clone())
     } else {
         let parent_root = resolve_git_root(&parent)?;
@@ -1599,8 +1605,8 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{
-        apply_workspace_settings_update, build_clone_destination_path, sanitize_clone_dir_name,
-        sanitize_worktree_name, sort_workspaces,
+        apply_workspace_settings_update, build_clone_destination_path, jj_workspace_add_args,
+        sanitize_clone_dir_name, sanitize_worktree_name, sort_workspaces,
     };
     use crate::storage::{read_workspaces, write_workspaces};
     use crate::types::{
@@ -1658,6 +1664,21 @@ mod tests {
     fn sanitize_worktree_name_allows_safe_chars() {
         assert_eq!(sanitize_worktree_name("release_1.2.3"), "release_1.2.3");
         assert_eq!(sanitize_worktree_name("feature--x"), "feature--x");
+    }
+
+    #[test]
+    fn jj_workspace_add_args_include_name_and_destination() {
+        let args = jj_workspace_add_args("my-workspace", "/tmp/workspace");
+        assert_eq!(
+            args,
+            vec![
+                "workspace",
+                "add",
+                "--name",
+                "my-workspace",
+                "/tmp/workspace"
+            ]
+        );
     }
 
     #[test]
