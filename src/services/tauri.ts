@@ -76,11 +76,13 @@ export async function addWorktree(
   parentId: string,
   branch: string,
   createBookmark?: boolean,
+  parentRevsets?: string,
 ): Promise<WorkspaceInfo> {
   return invoke<WorkspaceInfo>("add_worktree", {
     parentId,
     branch,
     createBookmark,
+    parentRevsets,
   });
 }
 

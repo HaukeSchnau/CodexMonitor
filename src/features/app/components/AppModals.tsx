@@ -34,6 +34,7 @@ type AppModalsProps = {
   onRenamePromptConfirm: () => void;
   worktreePrompt: WorktreePromptState;
   onWorktreePromptChange: (value: string) => void;
+  onWorktreePromptParentRevsetsChange: (value: string) => void;
   onWorktreePromptCancel: () => void;
   onWorktreePromptConfirm: () => void;
   clonePrompt: ClonePromptState;
@@ -57,6 +58,7 @@ export const AppModals = memo(function AppModals({
   onRenamePromptConfirm,
   worktreePrompt,
   onWorktreePromptChange,
+  onWorktreePromptParentRevsetsChange,
   onWorktreePromptCancel,
   onWorktreePromptConfirm,
   clonePrompt,
@@ -90,9 +92,11 @@ export const AppModals = memo(function AppModals({
           <WorktreePrompt
             workspaceName={worktreePrompt.workspace.name}
             branch={worktreePrompt.branch}
+            parentRevsets={worktreePrompt.parentRevsets}
             error={worktreePrompt.error}
             isBusy={worktreePrompt.isSubmitting}
             onChange={onWorktreePromptChange}
+            onParentRevsetsChange={onWorktreePromptParentRevsetsChange}
             onCancel={onWorktreePromptCancel}
             onConfirm={onWorktreePromptConfirm}
           />

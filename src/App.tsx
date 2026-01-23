@@ -674,6 +674,7 @@ function MainApp() {
     confirmPrompt: confirmWorktreePrompt,
     cancelPrompt: cancelWorktreePrompt,
     updateBranch: updateWorktreeBranch,
+    updateParentRevsets: updateWorktreeParentRevsets,
   } = useWorktreePrompt({
     addWorktreeAgent,
     connectWorkspace,
@@ -1724,6 +1725,7 @@ function MainApp() {
         onRenamePromptConfirm={handleRenamePromptConfirm}
         worktreePrompt={worktreePrompt}
         onWorktreePromptChange={updateWorktreeBranch}
+        onWorktreePromptParentRevsetsChange={updateWorktreeParentRevsets}
         onWorktreePromptCancel={cancelWorktreePrompt}
         onWorktreePromptConfirm={confirmWorktreePrompt}
         clonePrompt={clonePrompt}

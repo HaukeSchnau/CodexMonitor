@@ -503,14 +503,39 @@ fn resolve_worktree_kind(entry_path: &PathBuf) -> WorktreeKind {
     }
 }
 
-fn jj_workspace_add_args(workspace_name: &str, destination: &str) -> Vec<String> {
-    vec![
+fn jj_workspace_add_args(
+    workspace_name: &str,
+    destination: &str,
+    parent_revsets: &[String],
+) -> Vec<String> {
+    let mut args = vec![
         "workspace".to_string(),
         "add".to_string(),
         "--name".to_string(),
         workspace_name.to_string(),
-        destination.to_string(),
-    ]
+    ];
+    for revset in parent_revsets {
+        if revset.trim().is_empty() {
+            continue;
+        }
+        args.push("-r".to_string());
+        args.push(revset.to_string());
+    }
+    args.push(destination.to_string());
+    args
+}
+
+fn parse_jj_parent_revsets(parent_revsets: &Option<String>) -> Vec<String> {
+    parent_revsets
+        .as_ref()
+        .map(|value| {
+            value
+                .split_whitespace()
+                .filter(|part| !part.trim().is_empty())
+                .map(|part| part.to_string())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
 }
 
 #[tauri::command]
@@ -776,6 +801,7 @@ pub(crate) async fn add_worktree(
     parent_id: String,
     branch: String,
     create_bookmark: Option<bool>,
+    parent_revsets: Option<String>,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<WorkspaceInfo, String> {
@@ -798,6 +824,7 @@ pub(crate) async fn add_worktree(
 
     let worktree_kind = resolve_worktree_kind(&PathBuf::from(&parent_entry.path));
     let create_bookmark = create_bookmark.unwrap_or(false);
+    let parent_revsets = parse_jj_parent_revsets(&parent_revsets);
 
     let worktree_root = app
         .path()
@@ -831,7 +858,7 @@ pub(crate) async fn add_worktree(
     } else {
         let repo_root =
             find_jj_root(&parent_path).ok_or("JJ repo not found for parent workspace.")?;
-        let args = jj_workspace_add_args(&branch, &worktree_path_string);
+        let args = jj_workspace_add_args(&branch, &worktree_path_string, &parent_revsets);
         let args_ref: Vec<&str> = args.iter().map(String::as_str).collect();
         if let Err(error) = run_jj_command(&repo_root, &args_ref).await
         {
@@ -1606,7 +1633,7 @@ mod tests {
 
     use super::{
         apply_workspace_settings_update, build_clone_destination_path, jj_workspace_add_args,
-        sanitize_clone_dir_name, sanitize_worktree_name, sort_workspaces,
+        parse_jj_parent_revsets, sanitize_clone_dir_name, sanitize_worktree_name, sort_workspaces,
     };
     use crate::storage::{read_workspaces, write_workspaces};
     use crate::types::{
@@ -1668,7 +1695,20 @@ mod tests {
 
     #[test]
     fn jj_workspace_add_args_include_name_and_destination() {
-        let args = jj_workspace_add_args("my-workspace", "/tmp/workspace");
+        let args = jj_workspace_add_args("my-workspace", "/tmp/workspace", &[]);
+        assert_eq!(
+            args,
+            vec!["workspace", "add", "--name", "my-workspace", "/tmp/workspace"]
+        );
+    }
+
+    #[test]
+    fn jj_workspace_add_args_include_parent_revsets() {
+        let args = jj_workspace_add_args(
+            "my-workspace",
+            "/tmp/workspace",
+            &["main".to_string(), "@-".to_string()],
+        );
         assert_eq!(
             args,
             vec![
@@ -1676,9 +1716,19 @@ mod tests {
                 "add",
                 "--name",
                 "my-workspace",
+                "-r",
+                "main",
+                "-r",
+                "@-",
                 "/tmp/workspace"
             ]
         );
+    }
+
+    #[test]
+    fn parse_jj_parent_revsets_splits_on_whitespace() {
+        let parsed = parse_jj_parent_revsets(&Some("main   @-  foo".to_string()));
+        assert_eq!(parsed, vec!["main", "@-", "foo"]);
     }
 
     #[test]

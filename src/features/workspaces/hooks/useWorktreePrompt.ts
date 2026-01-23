@@ -5,6 +5,7 @@ type WorktreePromptState = {
   workspace: WorkspaceInfo;
   branch: string;
   defaultBranch: string;
+  parentRevsets: string;
   isSubmitting: boolean;
   error: string | null;
 } | null;
@@ -13,7 +14,7 @@ type UseWorktreePromptOptions = {
   addWorktreeAgent: (
     workspace: WorkspaceInfo,
     branch: string,
-    options?: { createBookmark?: boolean },
+    options?: { createBookmark?: boolean; parentRevsets?: string },
   ) => Promise<WorkspaceInfo | null>;
   connectWorkspace: (workspace: WorkspaceInfo) => Promise<void>;
   onSelectWorkspace: (workspaceId: string) => void;
@@ -27,6 +28,7 @@ type UseWorktreePromptResult = {
   confirmPrompt: () => Promise<void>;
   cancelPrompt: () => void;
   updateBranch: (value: string) => void;
+  updateParentRevsets: (value: string) => void;
 };
 
 export function useWorktreePrompt({
@@ -47,6 +49,7 @@ export function useWorktreePrompt({
       workspace,
       branch: defaultBranch,
       defaultBranch,
+      parentRevsets: "",
       isSubmitting: false,
       error: null,
     });
@@ -58,6 +61,12 @@ export function useWorktreePrompt({
     );
   }, []);
 
+  const updateParentRevsets = useCallback((value: string) => {
+    setWorktreePrompt((prev) =>
+      prev ? { ...prev, parentRevsets: value, error: null } : prev,
+    );
+  }, []);
+
   const cancelPrompt = useCallback(() => {
     setWorktreePrompt(null);
   }, []);
@@ -66,7 +75,7 @@ export function useWorktreePrompt({
     if (!worktreePrompt || worktreePrompt.isSubmitting) {
       return;
     }
-    const { workspace, branch } = worktreePrompt;
+    const { workspace, branch, parentRevsets } = worktreePrompt;
     setWorktreePrompt((prev) =>
       prev ? { ...prev, isSubmitting: true, error: null } : prev,
     );
@@ -74,8 +83,10 @@ export function useWorktreePrompt({
       const trimmed = branch.trim();
       const defaultBranch = worktreePrompt.defaultBranch.trim();
       const createBookmark = trimmed !== defaultBranch;
+      const trimmedRevsets = parentRevsets.trim();
       const worktreeWorkspace = await addWorktreeAgent(workspace, branch, {
         createBookmark,
+        parentRevsets: trimmedRevsets ? trimmedRevsets : undefined,
       });
       if (!worktreeWorkspace) {
         setWorktreePrompt(null);
@@ -109,5 +120,6 @@ export function useWorktreePrompt({
     confirmPrompt,
     cancelPrompt,
     updateBranch,
+    updateParentRevsets,
   };
 }

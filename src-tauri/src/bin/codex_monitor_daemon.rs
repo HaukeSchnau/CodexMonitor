@@ -212,6 +212,7 @@ impl DaemonState {
         parent_id: String,
         branch: String,
         create_bookmark: Option<bool>,
+        parent_revsets: Option<String>,
         client_version: String,
     ) -> Result<WorkspaceInfo, String> {
         let branch = branch.trim().to_string();
@@ -233,6 +234,7 @@ impl DaemonState {
 
         let worktree_kind = resolve_worktree_kind(&PathBuf::from(&parent_entry.path));
         let create_bookmark = create_bookmark.unwrap_or(false);
+        let parent_revsets = parse_jj_parent_revsets(&parent_revsets);
 
         let worktree_root = self.data_dir.join("worktrees").join(&parent_entry.id);
         std::fs::create_dir_all(&worktree_root)
@@ -269,7 +271,7 @@ impl DaemonState {
         } else {
             let repo_root =
                 find_jj_root(&repo_path).ok_or("JJ repo not found for parent workspace.")?;
-            let args = jj_workspace_add_args(&branch, &worktree_path_string);
+            let args = jj_workspace_add_args(&branch, &worktree_path_string, &parent_revsets);
             let args_ref: Vec<&str> = args.iter().map(String::as_str).collect();
             if let Err(error) = run_jj_command(&repo_root, &args_ref).await {
                 let _ = tokio::fs::remove_dir_all(&worktree_path).await;
@@ -1442,14 +1444,39 @@ fn resolve_worktree_kind(entry_path: &PathBuf) -> WorktreeKind {
     }
 }
 
-fn jj_workspace_add_args(workspace_name: &str, destination: &str) -> Vec<String> {
-    vec![
+fn jj_workspace_add_args(
+    workspace_name: &str,
+    destination: &str,
+    parent_revsets: &[String],
+) -> Vec<String> {
+    let mut args = vec![
         "workspace".to_string(),
         "add".to_string(),
         "--name".to_string(),
         workspace_name.to_string(),
-        destination.to_string(),
-    ]
+    ];
+    for revset in parent_revsets {
+        if revset.trim().is_empty() {
+            continue;
+        }
+        args.push("-r".to_string());
+        args.push(revset.to_string());
+    }
+    args.push(destination.to_string());
+    args
+}
+
+fn parse_jj_parent_revsets(parent_revsets: &Option<String>) -> Vec<String> {
+    parent_revsets
+        .as_ref()
+        .map(|value| {
+            value
+                .split_whitespace()
+                .filter(|part| !part.trim().is_empty())
+                .map(|part| part.to_string())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
 }
 
 fn unique_worktree_path(base_dir: &PathBuf, name: &str) -> Result<PathBuf, String> {
@@ -1711,8 +1738,9 @@ async fn handle_rpc_request(
             let parent_id = parse_string(&params, "parentId")?;
             let branch = parse_string(&params, "branch")?;
             let create_bookmark = parse_optional_bool(&params, "createBookmark");
+            let parent_revsets = parse_optional_string(&params, "parentRevsets");
             let workspace = state
-                .add_worktree(parent_id, branch, create_bookmark, client_version)
+                .add_worktree(parent_id, branch, create_bookmark, parent_revsets, client_version)
                 .await?;
             serde_json::to_value(workspace).map_err(|err| err.to_string())
         }

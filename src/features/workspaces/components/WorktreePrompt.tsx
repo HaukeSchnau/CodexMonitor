@@ -3,8 +3,10 @@ import { useEffect, useRef } from "react";
 type WorktreePromptProps = {
   workspaceName: string;
   branch: string;
+  parentRevsets?: string;
   error?: string | null;
   onChange: (value: string) => void;
+  onParentRevsetsChange?: (value: string) => void;
   onCancel: () => void;
   onConfirm: () => void;
   isBusy?: boolean;
@@ -13,8 +15,10 @@ type WorktreePromptProps = {
 export function WorktreePrompt({
   workspaceName,
   branch,
+  parentRevsets = "",
   error = null,
   onChange,
+  onParentRevsetsChange,
   onCancel,
   onConfirm,
   isBusy = false,
@@ -62,6 +66,28 @@ export function WorktreePrompt({
               onConfirm();
             }
           }}
+        />
+        <label className="worktree-modal-label" htmlFor="worktree-parent-revsets">
+          JJ parent revsets (optional)
+        </label>
+        <input
+          id="worktree-parent-revsets"
+          className="worktree-modal-input"
+          value={parentRevsets}
+          onChange={(event) => onParentRevsetsChange?.(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              if (!isBusy) {
+                onCancel();
+              }
+            }
+            if (event.key === "Enter" && !isBusy) {
+              event.preventDefault();
+              onConfirm();
+            }
+          }}
+          placeholder="e.g. main @-"
         />
         {error && <div className="worktree-modal-error">{error}</div>}
         <div className="worktree-modal-actions">
