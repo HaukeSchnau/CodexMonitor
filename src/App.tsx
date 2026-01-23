@@ -235,6 +235,26 @@ function MainApp() {
     closeSettings,
   } = useSettingsModalState();
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const handleSelectCodexEnvironment = useCallback(
+    (id: string | null) => {
+      setAppSettings((current) => {
+        const nextId =
+          id && current.codexEnvironments.some((env) => env.id === id)
+            ? id
+            : null;
+        if (current.activeCodexEnvironmentId === nextId) {
+          return current;
+        }
+        const nextSettings = {
+          ...current,
+          activeCodexEnvironmentId: nextId,
+        };
+        void queueSaveSettings(nextSettings);
+        return nextSettings;
+      });
+    },
+    [queueSaveSettings, setAppSettings],
+  );
 
   const {
     updaterState,
@@ -1313,6 +1333,9 @@ function MainApp() {
     lastAgentMessageByThread,
     activeWorkspaceId,
     activeThreadId,
+    codexEnvironments: appSettings.codexEnvironments,
+    activeCodexEnvironmentId: appSettings.activeCodexEnvironmentId,
+    onSelectCodexEnvironment: handleSelectCodexEnvironment,
     activeItems,
     activeRateLimits,
     codeBlockCopyUseModifier: appSettings.composerCodeBlockCopyUseModifier,

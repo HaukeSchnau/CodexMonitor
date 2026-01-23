@@ -22,6 +22,23 @@ pub(crate) fn resolve_workspace_codex_home(
     None
 }
 
+pub(crate) fn resolve_effective_codex_home(
+    entry: &WorkspaceEntry,
+    parent_path: Option<&str>,
+    active_env_home: Option<&str>,
+) -> Option<PathBuf> {
+    resolve_workspace_codex_home(entry, parent_path).or_else(|| {
+        active_env_home.and_then(|value| {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(PathBuf::from(trimmed))
+            }
+        })
+    })
+}
+
 pub(crate) fn resolve_default_codex_home() -> Option<PathBuf> {
     if let Ok(value) = env::var("CODEX_HOME") {
         if !value.trim().is_empty() {

@@ -144,6 +144,30 @@
   color: var(--text-subtle);
 }
 
+.settings-env-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings-env-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(200px, 1.4fr) auto auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.settings-env-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.settings-env-empty {
+  font-size: 12px;
+  color: var(--text-subtle);
+}
+
 .settings-download-progress {
   display: flex;
   flex-direction: column;
@@ -559,5 +583,14 @@
     flex-direction: row;
     border-right: none;
     border-bottom: 1px solid var(--border-muted);
+  }
+
+  .settings-env-row {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .settings-env-actions {
+    flex-wrap: wrap;
   }
 }

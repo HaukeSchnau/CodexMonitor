@@ -1,4 +1,9 @@
-import type { RateLimitSnapshot, ThreadSummary, WorkspaceInfo } from "../../../types";
+import type {
+  CodexEnvironment,
+  RateLimitSnapshot,
+  ThreadSummary,
+  WorkspaceInfo,
+} from "../../../types";
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RefObject } from "react";
@@ -46,6 +51,9 @@ type SidebarProps = {
   lastAgentMessageByThread: Record<string, { text: string; timestamp: number }>;
   activeWorkspaceId: string | null;
   activeThreadId: string | null;
+  codexEnvironments: CodexEnvironment[];
+  activeCodexEnvironmentId: string | null;
+  onSelectCodexEnvironment: (id: string | null) => void;
   accountRateLimits: RateLimitSnapshot | null;
   onOpenSettings: () => void;
   onOpenDebug: () => void;
@@ -92,6 +100,9 @@ export function Sidebar({
   lastAgentMessageByThread,
   activeWorkspaceId,
   activeThreadId,
+  codexEnvironments,
+  activeCodexEnvironmentId,
+  onSelectCodexEnvironment,
   accountRateLimits,
   onOpenSettings,
   onOpenDebug,
@@ -288,7 +299,13 @@ export function Sidebar({
       onDragLeave={onWorkspaceDragLeave}
       onDrop={onWorkspaceDrop}
     >
-      <SidebarHeader onSelectHome={onSelectHome} onAddWorkspace={onAddWorkspace} />
+      <SidebarHeader
+        onSelectHome={onSelectHome}
+        onAddWorkspace={onAddWorkspace}
+        codexEnvironments={codexEnvironments}
+        activeCodexEnvironmentId={activeCodexEnvironmentId}
+        onSelectCodexEnvironment={onSelectCodexEnvironment}
+      />
       <div
         className={`workspace-drop-overlay${
           isWorkspaceDropActive ? " is-active" : ""

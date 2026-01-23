@@ -15,6 +15,7 @@ import FlaskConical from "lucide-react/dist/esm/icons/flask-conical";
 import type {
   AppSettings,
   CodexDoctorResult,
+  CodexEnvironment,
   DictationModelStatus,
   WorkspaceGroup,
   WorkspaceInfo,
@@ -207,6 +208,11 @@ export function SettingsView({
 }: SettingsViewProps) {
   const [activeSection, setActiveSection] = useState<CodexSection>("projects");
   const [codexPathDraft, setCodexPathDraft] = useState(appSettings.codexBin ?? "");
+  const [codexEnvironmentDrafts, setCodexEnvironmentDrafts] = useState<
+    CodexEnvironment[]
+  >(appSettings.codexEnvironments ?? []);
+  const [activeCodexEnvironmentIdDraft, setActiveCodexEnvironmentIdDraft] =
+    useState<string | null>(appSettings.activeCodexEnvironmentId ?? null);
   const [remoteHostDraft, setRemoteHostDraft] = useState(appSettings.remoteBackendHost);
   const [remoteTokenDraft, setRemoteTokenDraft] = useState(appSettings.remoteBackendToken ?? "");
   const [scaleDraft, setScaleDraft] = useState(
@@ -226,6 +232,7 @@ export function SettingsView({
     result: CodexDoctorResult | null;
   }>({ status: "idle", result: null });
   const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [isSavingCodexEnvironments, setIsSavingCodexEnvironments] = useState(false);
   const [shortcutDrafts, setShortcutDrafts] = useState({
     model: appSettings.composerModelShortcut ?? "",
     access: appSettings.composerAccessShortcut ?? "",
@@ -287,6 +294,11 @@ export function SettingsView({
   useEffect(() => {
     setCodexPathDraft(appSettings.codexBin ?? "");
   }, [appSettings.codexBin]);
+
+  useEffect(() => {
+    setCodexEnvironmentDrafts(appSettings.codexEnvironments ?? []);
+    setActiveCodexEnvironmentIdDraft(appSettings.activeCodexEnvironmentId ?? null);
+  }, [appSettings.activeCodexEnvironmentId, appSettings.codexEnvironments]);
 
   useEffect(() => {
     setRemoteHostDraft(appSettings.remoteBackendHost);
@@ -375,6 +387,32 @@ export function SettingsView({
 
   const codexDirty =
     (codexPathDraft.trim() || null) !== (appSettings.codexBin ?? null);
+  const codexEnvironmentDirty = useMemo(() => {
+    if (
+      activeCodexEnvironmentIdDraft !== (appSettings.activeCodexEnvironmentId ?? null)
+    ) {
+      return true;
+    }
+    if (codexEnvironmentDrafts.length !== appSettings.codexEnvironments.length) {
+      return true;
+    }
+    return codexEnvironmentDrafts.some((env, index) => {
+      const original = appSettings.codexEnvironments[index];
+      if (!original) {
+        return true;
+      }
+      return (
+        env.id !== original.id ||
+        env.name !== original.name ||
+        env.codexHome !== original.codexHome
+      );
+    });
+  }, [
+    activeCodexEnvironmentIdDraft,
+    appSettings.activeCodexEnvironmentId,
+    appSettings.codexEnvironments,
+    codexEnvironmentDrafts,
+  ]);
 
   const trimmedScale = scaleDraft.trim();
   const parsedPercent = trimmedScale
@@ -391,6 +429,56 @@ export function SettingsView({
       });
     } finally {
       setIsSavingSettings(false);
+    }
+  };
+
+  const handleSaveCodexEnvironments = async () => {
+    const trimmedEnvironments = codexEnvironmentDrafts.map((env) => ({
+      ...env,
+      name: env.name.trim(),
+      codexHome: env.codexHome.trim(),
+    }));
+    const activeId =
+      activeCodexEnvironmentIdDraft &&
+      trimmedEnvironments.some((env) => env.id === activeCodexEnvironmentIdDraft)
+        ? activeCodexEnvironmentIdDraft
+        : null;
+    setIsSavingCodexEnvironments(true);
+    try {
+      await onUpdateAppSettings({
+        ...appSettings,
+        codexEnvironments: trimmedEnvironments,
+        activeCodexEnvironmentId: activeId,
+      });
+    } finally {
+      setIsSavingCodexEnvironments(false);
+    }
+  };
+
+  const handleAddCodexEnvironment = () => {
+    const id =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    setCodexEnvironmentDrafts((prev) => [
+      ...prev,
+      { id, name: "New environment", codexHome: "" },
+    ]);
+  };
+
+  const handleUpdateCodexEnvironment = (
+    id: string,
+    changes: Partial<CodexEnvironment>,
+  ) => {
+    setCodexEnvironmentDrafts((prev) =>
+      prev.map((env) => (env.id === id ? { ...env, ...changes } : env)),
+    );
+  };
+
+  const handleRemoveCodexEnvironment = (id: string) => {
+    setCodexEnvironmentDrafts((prev) => prev.filter((env) => env.id !== id));
+    if (activeCodexEnvironmentIdDraft === id) {
+      setActiveCodexEnvironmentIdDraft(null);
     }
   };
 
@@ -1991,63 +2079,148 @@ export function SettingsView({
                   <div className="settings-help">
                     Leave empty to use the system PATH resolution.
                   </div>
-                <div className="settings-field-actions">
-                  {codexDirty && (
+                  <div className="settings-field-actions">
+                    {codexDirty && (
+                      <button
+                        type="button"
+                        className="primary"
+                        onClick={handleSaveCodexSettings}
+                        disabled={isSavingSettings}
+                      >
+                        {isSavingSettings ? "Saving..." : "Save"}
+                      </button>
+                    )}
                     <button
                       type="button"
-                      className="primary"
-                      onClick={handleSaveCodexSettings}
-                      disabled={isSavingSettings}
+                      className="ghost settings-button-compact"
+                      onClick={handleRunDoctor}
+                      disabled={doctorState.status === "running"}
                     >
-                      {isSavingSettings ? "Saving..." : "Save"}
+                      <Stethoscope aria-hidden />
+                      {doctorState.status === "running" ? "Running..." : "Run doctor"}
                     </button>
+                  </div>
+
+                  {doctorState.result && (
+                    <div
+                      className={`settings-doctor ${doctorState.result.ok ? "ok" : "error"}`}
+                    >
+                      <div className="settings-doctor-title">
+                        {doctorState.result.ok
+                          ? "Codex looks good"
+                          : "Codex issue detected"}
+                      </div>
+                      <div className="settings-doctor-body">
+                        <div>
+                          Version: {doctorState.result.version ?? "unknown"}
+                        </div>
+                        <div>
+                          App-server: {doctorState.result.appServerOk ? "ok" : "failed"}
+                        </div>
+                        <div>
+                          Node:{" "}
+                          {doctorState.result.nodeOk
+                            ? `ok (${doctorState.result.nodeVersion ?? "unknown"})`
+                            : "missing"}
+                        </div>
+                        {doctorState.result.details && (
+                          <div>{doctorState.result.details}</div>
+                        )}
+                        {doctorState.result.nodeDetails && (
+                          <div>{doctorState.result.nodeDetails}</div>
+                        )}
+                        {doctorState.result.path && (
+                          <div className="settings-doctor-path">
+                            PATH: {doctorState.result.path}
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   )}
-                  <button
-                    type="button"
-                    className="ghost settings-button-compact"
-                    onClick={handleRunDoctor}
-                    disabled={doctorState.status === "running"}
-                  >
-                    <Stethoscope aria-hidden />
-                    {doctorState.status === "running" ? "Running..." : "Run doctor"}
-                  </button>
                 </div>
 
-                {doctorState.result && (
-                  <div
-                    className={`settings-doctor ${doctorState.result.ok ? "ok" : "error"}`}
-                  >
-                    <div className="settings-doctor-title">
-                      {doctorState.result.ok ? "Codex looks good" : "Codex issue detected"}
-                    </div>
-                    <div className="settings-doctor-body">
-                      <div>
-                        Version: {doctorState.result.version ?? "unknown"}
+                <div className="settings-field">
+                  <div className="settings-field-label">Codex environments</div>
+                  <div className="settings-env-list">
+                    {codexEnvironmentDrafts.length === 0 && (
+                      <div className="settings-env-empty">
+                        Add environments to switch CODEX_HOME for new sessions.
                       </div>
-                      <div>
-                        App-server: {doctorState.result.appServerOk ? "ok" : "failed"}
-                      </div>
-                      <div>
-                        Node:{" "}
-                        {doctorState.result.nodeOk
-                          ? `ok (${doctorState.result.nodeVersion ?? "unknown"})`
-                          : "missing"}
-                      </div>
-                      {doctorState.result.details && (
-                        <div>{doctorState.result.details}</div>
-                      )}
-                      {doctorState.result.nodeDetails && (
-                        <div>{doctorState.result.nodeDetails}</div>
-                      )}
-                      {doctorState.result.path && (
-                        <div className="settings-doctor-path">
-                          PATH: {doctorState.result.path}
+                    )}
+                    {codexEnvironmentDrafts.map((env) => {
+                      const isActive = env.id === activeCodexEnvironmentIdDraft;
+                      return (
+                        <div key={env.id} className="settings-env-row">
+                          <input
+                            className="settings-input settings-input--compact"
+                            value={env.name}
+                            placeholder="Environment name"
+                            onChange={(event) =>
+                              handleUpdateCodexEnvironment(env.id, {
+                                name: event.target.value,
+                              })
+                            }
+                          />
+                          <input
+                            className="settings-input settings-input--compact"
+                            value={env.codexHome}
+                            placeholder="CODEX_HOME path"
+                            onChange={(event) =>
+                              handleUpdateCodexEnvironment(env.id, {
+                                codexHome: event.target.value,
+                              })
+                            }
+                          />
+                          <button
+                            type="button"
+                            className={
+                              isActive
+                                ? "primary settings-button-compact"
+                                : "ghost settings-button-compact"
+                            }
+                            onClick={() =>
+                              setActiveCodexEnvironmentIdDraft(
+                                isActive ? null : env.id,
+                              )
+                            }
+                          >
+                            {isActive ? "Active" : "Set active"}
+                          </button>
+                          <button
+                            type="button"
+                            className="ghost settings-button-compact"
+                            onClick={() => handleRemoveCodexEnvironment(env.id)}
+                          >
+                            Remove
+                          </button>
                         </div>
+                      );
+                    })}
+                    <div className="settings-env-actions">
+                      <button
+                        type="button"
+                        className="ghost settings-button-compact"
+                        onClick={handleAddCodexEnvironment}
+                      >
+                        Add environment
+                      </button>
+                      {codexEnvironmentDirty && (
+                        <button
+                          type="button"
+                          className="primary settings-button-compact"
+                          onClick={handleSaveCodexEnvironments}
+                          disabled={isSavingCodexEnvironments}
+                        >
+                          {isSavingCodexEnvironments ? "Saving..." : "Save"}
+                        </button>
                       )}
                     </div>
                   </div>
-                )}
-              </div>
+                  <div className="settings-help">
+                    Applies to new sessions only. Workspaces with .codexmonitor override
+                    this selection.
+                  </div>
+                </div>
 
                 <div className="settings-field">
                   <label className="settings-field-label" htmlFor="default-access">

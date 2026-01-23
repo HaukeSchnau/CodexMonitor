@@ -220,12 +220,20 @@ pub(crate) struct WorktreeInfo {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub(crate) struct WorkspaceGroup {
+  pub(crate) id: String,
+  pub(crate) name: String,
+  #[serde(default, rename = "sortOrder")]
+  pub(crate) sort_order: Option<u32>,
+  #[serde(default, rename = "copiesFolder")]
+  pub(crate) copies_folder: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CodexEnvironment {
     pub(crate) id: String,
     pub(crate) name: String,
-    #[serde(default, rename = "sortOrder")]
-    pub(crate) sort_order: Option<u32>,
-    #[serde(default, rename = "copiesFolder")]
-    pub(crate) copies_folder: Option<String>,
+    pub(crate) codex_home: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -244,6 +252,10 @@ pub(crate) struct WorkspaceSettings {
 pub(crate) struct AppSettings {
     #[serde(default, rename = "codexBin")]
     pub(crate) codex_bin: Option<String>,
+    #[serde(default, rename = "codexEnvironments")]
+    pub(crate) codex_environments: Vec<CodexEnvironment>,
+    #[serde(default, rename = "activeCodexEnvironmentId")]
+    pub(crate) active_codex_environment_id: Option<String>,
     #[serde(default, rename = "backendMode")]
     pub(crate) backend_mode: BackendMode,
     #[serde(default = "default_remote_backend_host", rename = "remoteBackendHost")]
@@ -558,10 +570,16 @@ fn default_workspace_groups() -> Vec<WorkspaceGroup> {
     Vec::new()
 }
 
+fn default_codex_environments() -> Vec<CodexEnvironment> {
+    Vec::new()
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
             codex_bin: None,
+            codex_environments: default_codex_environments(),
+            active_codex_environment_id: None,
             backend_mode: BackendMode::Local,
             remote_backend_host: default_remote_backend_host(),
             remote_backend_token: None,
@@ -619,6 +637,8 @@ mod tests {
     fn app_settings_defaults_from_empty_json() {
         let settings: AppSettings = serde_json::from_str("{}").expect("settings deserialize");
         assert!(settings.codex_bin.is_none());
+        assert!(settings.codex_environments.is_empty());
+        assert!(settings.active_codex_environment_id.is_none());
         assert!(matches!(settings.backend_mode, BackendMode::Local));
         assert_eq!(settings.remote_backend_host, "127.0.0.1:4732");
         assert!(settings.remote_backend_token.is_none());

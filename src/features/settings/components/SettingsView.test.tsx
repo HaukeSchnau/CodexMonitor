@@ -19,6 +19,8 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 
 const baseSettings: AppSettings = {
   codexBin: null,
+  codexEnvironments: [],
+  activeCodexEnvironmentId: null,
   backendMode: "local",
   remoteBackendHost: "127.0.0.1:4732",
   remoteBackendToken: null,

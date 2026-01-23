@@ -24,6 +24,7 @@ import type {
   CollaborationModeOption,
   ConversationItem,
   ComposerEditorSettings,
+  CodexEnvironment,
   CustomPromptOption,
   DebugEntry,
   DictationSessionState,
@@ -98,6 +99,9 @@ type LayoutNodesOptions = {
   lastAgentMessageByThread: Record<string, { text: string; timestamp: number }>;
   activeWorkspaceId: string | null;
   activeThreadId: string | null;
+  codexEnvironments: CodexEnvironment[];
+  activeCodexEnvironmentId: string | null;
+  onSelectCodexEnvironment: (id: string | null) => void;
   activeItems: ConversationItem[];
   activeRateLimits: RateLimitSnapshot | null;
   codeBlockCopyUseModifier: boolean;
@@ -401,6 +405,9 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
       lastAgentMessageByThread={options.lastAgentMessageByThread}
       activeWorkspaceId={options.activeWorkspaceId}
       activeThreadId={options.activeThreadId}
+      codexEnvironments={options.codexEnvironments}
+      activeCodexEnvironmentId={options.activeCodexEnvironmentId}
+      onSelectCodexEnvironment={options.onSelectCodexEnvironment}
       accountRateLimits={options.activeRateLimits}
       onOpenSettings={options.onOpenSettings}
       onOpenDebug={options.onOpenDebug}

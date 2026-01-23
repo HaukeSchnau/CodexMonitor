@@ -74,6 +74,11 @@ export type AccessMode = "read-only" | "current" | "full-access";
 export type BackendMode = "local" | "remote";
 export type ThemePreference = "system" | "light" | "dark";
 
+export type CodexEnvironment = {
+  id: string;
+  name: string;
+  codexHome: string;
+};
 
 export type ComposerEditorPreset = "default" | "helpful" | "smart";
 
@@ -90,6 +95,8 @@ export type ComposerEditorSettings = {
 
 export type AppSettings = {
   codexBin: string | null;
+  codexEnvironments: CodexEnvironment[];
+  activeCodexEnvironmentId: string | null;
   backendMode: BackendMode;
   remoteBackendHost: string;
   remoteBackendToken: string | null;

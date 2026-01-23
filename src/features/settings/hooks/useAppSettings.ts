@@ -14,6 +14,8 @@ const allowedThemes = new Set(["system", "light", "dark"]);
 
 const defaultSettings: AppSettings = {
   codexBin: null,
+  codexEnvironments: [],
+  activeCodexEnvironmentId: null,
   backendMode: "local",
   remoteBackendHost: "127.0.0.1:4732",
   remoteBackendToken: null,

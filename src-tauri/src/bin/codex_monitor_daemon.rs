@@ -39,6 +39,15 @@ use types::{
 
 const DEFAULT_LISTEN_ADDR: &str = "127.0.0.1:4732";
 
+fn resolve_active_codex_environment_path(settings: &AppSettings) -> Option<String> {
+    let active_id = settings.active_codex_environment_id.as_ref()?;
+    settings
+        .codex_environments
+        .iter()
+        .find(|env| env.id == *active_id)
+        .map(|env| env.codex_home.clone())
+}
+
 #[derive(Clone)]
 struct DaemonEventSink {
     tx: broadcast::Sender<DaemonEvent>,
@@ -166,12 +175,16 @@ impl DaemonState {
             settings: WorkspaceSettings::default(),
         };
 
-        let default_bin = {
+        let (default_bin, active_env_home) = {
             let settings = self.app_settings.lock().await;
-            settings.codex_bin.clone()
+            (
+                settings.codex_bin.clone(),
+                resolve_active_codex_environment_path(&settings),
+            )
         };
 
-        let codex_home = codex_home::resolve_workspace_codex_home(&entry, None);
+        let codex_home =
+            codex_home::resolve_effective_codex_home(&entry, None, active_env_home.as_deref());
         let session = spawn_workspace_session(
             entry.clone(),
             default_bin,
@@ -269,12 +282,19 @@ impl DaemonState {
             settings: WorkspaceSettings::default(),
         };
 
-        let default_bin = {
+        let (default_bin, active_env_home) = {
             let settings = self.app_settings.lock().await;
-            settings.codex_bin.clone()
+            (
+                settings.codex_bin.clone(),
+                resolve_active_codex_environment_path(&settings),
+            )
         };
 
-        let codex_home = codex_home::resolve_workspace_codex_home(&entry, Some(&parent_entry.path));
+        let codex_home = codex_home::resolve_effective_codex_home(
+            &entry,
+            Some(&parent_entry.path),
+            active_env_home.as_deref(),
+        );
         let session = spawn_workspace_session(
             entry.clone(),
             default_bin,
@@ -533,12 +553,18 @@ impl DaemonState {
         let was_connected = self.sessions.lock().await.contains_key(&entry_snapshot.id);
         if was_connected {
             self.kill_session(&entry_snapshot.id).await;
-            let default_bin = {
+            let (default_bin, active_env_home) = {
                 let settings = self.app_settings.lock().await;
-                settings.codex_bin.clone()
+                (
+                    settings.codex_bin.clone(),
+                    resolve_active_codex_environment_path(&settings),
+                )
             };
-            let codex_home =
-                codex_home::resolve_workspace_codex_home(&entry_snapshot, Some(&parent.path));
+            let codex_home = codex_home::resolve_effective_codex_home(
+                &entry_snapshot,
+                Some(&parent.path),
+                active_env_home.as_deref(),
+            );
             match spawn_workspace_session(
                 entry_snapshot.clone(),
                 default_bin,
@@ -742,9 +768,12 @@ impl DaemonState {
                 .ok_or("workspace not found")?
         };
 
-        let default_bin = {
+        let (default_bin, active_env_home) = {
             let settings = self.app_settings.lock().await;
-            settings.codex_bin.clone()
+            (
+                settings.codex_bin.clone(),
+                resolve_active_codex_environment_path(&settings),
+            )
         };
 
         let parent_path = if entry.kind.is_worktree() {
@@ -757,7 +786,11 @@ impl DaemonState {
         } else {
             None
         };
-        let codex_home = codex_home::resolve_workspace_codex_home(&entry, parent_path.as_deref());
+        let codex_home = codex_home::resolve_effective_codex_home(
+            &entry,
+            parent_path.as_deref(),
+            active_env_home.as_deref(),
+        );
         let session = spawn_workspace_session(
             entry,
             default_bin,
