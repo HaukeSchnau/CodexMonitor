@@ -42,24 +42,26 @@ export function SidebarHeader({
           +
         </button>
       </div>
-      <div className="sidebar-env">
-        <div className="sidebar-env-label">Environment</div>
-        <select
-          className="sidebar-env-select"
-          value={selectedId}
-          onChange={(event) => {
-            const value = event.target.value;
-            onSelectCodexEnvironment(value === "default" ? null : value);
-          }}
-        >
-          <option value="default">Default</option>
-          {codexEnvironments.map((env) => (
-            <option key={env.id} value={env.id}>
-              {env.name.trim() || "Unnamed"}
-            </option>
-          ))}
-        </select>
-      </div>
+      {codexEnvironments.length > 0 && (
+        <div className="sidebar-env">
+          <div className="sidebar-env-label">Environment</div>
+          <select
+            className="sidebar-env-select"
+            value={selectedId}
+            onChange={(event) => {
+              const value = event.target.value;
+              onSelectCodexEnvironment(value === "default" ? null : value);
+            }}
+          >
+            <option value="default">Default</option>
+            {codexEnvironments.map((env) => (
+              <option key={env.id} value={env.id}>
+                {env.name.trim() || "Unnamed"}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
     </div>
   );
 }
