@@ -24,6 +24,7 @@ export type WorkspaceInfo = {
   path: string;
   connected: boolean;
   codex_bin?: string | null;
+  codexEnvironmentId?: string | null;
   kind?: WorkspaceKind;
   parentId?: string | null;
   worktree?: WorktreeInfo | null;

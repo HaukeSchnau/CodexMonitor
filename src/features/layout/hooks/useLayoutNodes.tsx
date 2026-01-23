@@ -552,11 +552,22 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
     />
   );
 
+  const activeEnvironmentLabel = (() => {
+    const envId = options.activeWorkspace?.codexEnvironmentId ?? null;
+    if (!envId) {
+      return null;
+    }
+    const match = options.codexEnvironments.find((env) => env.id === envId);
+    const name = match?.name.trim() ?? "";
+    return name ? name : null;
+  })();
+
   const mainHeaderNode = options.activeWorkspace ? (
     <MainHeader
       workspace={options.activeWorkspace}
       parentName={options.activeParentWorkspace?.name ?? null}
       worktreeLabel={options.worktreeLabel}
+      environmentLabel={activeEnvironmentLabel}
       worktreeRename={options.worktreeRename}
       disableBranchMenu={options.isWorktreeWorkspace}
       parentPath={options.activeParentWorkspace?.path ?? null}

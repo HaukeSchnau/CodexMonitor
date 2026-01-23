@@ -26,6 +26,7 @@ pub(crate) async fn spawn_workspace_session(
     default_codex_bin: Option<String>,
     app_handle: AppHandle,
     codex_home: Option<PathBuf>,
+    codex_environment_id: Option<String>,
 ) -> Result<Arc<WorkspaceSession>, String> {
     let client_version = app_handle.package_info().version.to_string();
     let event_sink = TauriEventSink::new(app_handle);
@@ -35,6 +36,7 @@ pub(crate) async fn spawn_workspace_session(
         client_version,
         event_sink,
         codex_home,
+        codex_environment_id,
     )
     .await
 }

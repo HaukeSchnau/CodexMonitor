@@ -368,6 +368,17 @@
   white-space: nowrap;
 }
 
+.workspace-env-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-muted);
+  color: var(--text-subtle);
+  background: var(--surface-control);
+  white-space: nowrap;
+}
+
 .workspace-branch-static-row {
   position: relative;
   display: inline-flex;

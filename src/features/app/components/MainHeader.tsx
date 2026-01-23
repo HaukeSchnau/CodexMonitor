@@ -11,6 +11,7 @@ type MainHeaderProps = {
   workspace: WorkspaceInfo;
   parentName?: string | null;
   worktreeLabel?: string | null;
+  environmentLabel?: string | null;
   disableBranchMenu?: boolean;
   parentPath?: string | null;
   worktreePath?: string | null;
@@ -48,6 +49,7 @@ export function MainHeader({
   workspace,
   parentName = null,
   worktreeLabel = null,
+  environmentLabel = null,
   disableBranchMenu = false,
   parentPath = null,
   worktreePath = null,
@@ -399,6 +401,11 @@ export function MainHeader({
               )}
             </div>
           )}
+          {environmentLabel ? (
+            <span className="workspace-env-badge" title="Codex environment">
+              {environmentLabel}
+            </span>
+          ) : null}
         </div>
       </div>
       <div className="main-header-actions">

@@ -184,6 +184,8 @@ pub(crate) struct WorkspaceInfo {
     pub(crate) path: String,
     pub(crate) connected: bool,
     pub(crate) codex_bin: Option<String>,
+    #[serde(default, rename = "codexEnvironmentId")]
+    pub(crate) codex_environment_id: Option<String>,
     #[serde(default)]
     pub(crate) kind: WorkspaceKind,
     #[serde(default, rename = "parentId")]

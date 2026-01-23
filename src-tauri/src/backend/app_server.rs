@@ -25,6 +25,7 @@ fn extract_thread_id(value: &Value) -> Option<String> {
 
 pub(crate) struct WorkspaceSession {
     pub(crate) entry: WorkspaceEntry,
+    pub(crate) codex_environment_id: Option<String>,
     pub(crate) child: Mutex<Child>,
     pub(crate) stdin: Mutex<ChildStdin>,
     pub(crate) pending: Mutex<HashMap<u64, oneshot::Sender<Value>>>,
@@ -189,6 +190,7 @@ pub(crate) async fn spawn_workspace_session<E: EventSink>(
     client_version: String,
     event_sink: E,
     codex_home: Option<PathBuf>,
+    codex_environment_id: Option<String>,
 ) -> Result<Arc<WorkspaceSession>, String> {
     let codex_bin = entry
         .codex_bin
@@ -214,6 +216,7 @@ pub(crate) async fn spawn_workspace_session<E: EventSink>(
 
     let session = Arc::new(WorkspaceSession {
         entry: entry.clone(),
+        codex_environment_id,
         child: Mutex::new(child),
         stdin: Mutex::new(stdin),
         pending: Mutex::new(HashMap::new()),

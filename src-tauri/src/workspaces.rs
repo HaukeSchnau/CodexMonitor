@@ -13,7 +13,7 @@ use tokio::process::Command;
 use uuid::Uuid;
 
 use crate::codex::spawn_workspace_session;
-use crate::codex_home::resolve_effective_codex_home;
+use crate::codex_home::resolve_workspace_codex_home;
 use crate::remote_backend;
 use crate::state::AppState;
 use crate::git_utils::resolve_git_root;
@@ -23,13 +23,17 @@ use crate::types::{
 };
 use crate::utils::normalize_git_path;
 
-fn resolve_active_codex_environment_path(settings: &AppSettings) -> Option<String> {
+fn resolve_active_codex_environment(settings: &AppSettings) -> Option<(String, String)> {
     let active_id = settings.active_codex_environment_id.as_ref()?;
-    settings
+    let env = settings
         .codex_environments
         .iter()
-        .find(|env| env.id == *active_id)
-        .map(|env| env.codex_home.clone())
+        .find(|env| env.id == *active_id)?;
+    let home = env.codex_home.trim();
+    if home.is_empty() {
+        return None;
+    }
+    Some((env.id.clone(), home.to_string()))
 }
 
 fn should_skip_dir(name: &str) -> bool {
@@ -482,11 +486,15 @@ pub(crate) async fn list_workspaces(
     let sessions = state.sessions.lock().await;
     let mut result = Vec::new();
     for entry in workspaces.values() {
+        let codex_environment_id = sessions
+            .get(&entry.id)
+            .and_then(|session| session.codex_environment_id.clone());
         result.push(WorkspaceInfo {
             id: entry.id.clone(),
             name: entry.name.clone(),
             path: entry.path.clone(),
             codex_bin: entry.codex_bin.clone(),
+            codex_environment_id,
             connected: sessions.contains_key(&entry.id),
             kind: entry.kind.clone(),
             parent_id: entry.parent_id.clone(),
@@ -555,15 +563,26 @@ pub(crate) async fn add_workspace(
         settings: WorkspaceSettings::default(),
     };
 
-    let (default_bin, active_env_home) = {
+    let (default_bin, active_env) = {
         let settings = state.app_settings.lock().await;
-        (
-            settings.codex_bin.clone(),
-            resolve_active_codex_environment_path(&settings),
-        )
+        (settings.codex_bin.clone(), resolve_active_codex_environment(&settings))
     };
-    let codex_home = resolve_effective_codex_home(&entry, None, active_env_home.as_deref());
-    let session = spawn_workspace_session(entry.clone(), default_bin, app, codex_home).await?;
+    let legacy_home = resolve_workspace_codex_home(&entry, None);
+    let (codex_home, codex_environment_id) = if let Some(legacy_home) = legacy_home {
+        (Some(legacy_home), None)
+    } else if let Some((env_id, home)) = active_env {
+        (Some(PathBuf::from(home)), Some(env_id))
+    } else {
+        (None, None)
+    };
+    let session = spawn_workspace_session(
+        entry.clone(),
+        default_bin,
+        app,
+        codex_home,
+        codex_environment_id.clone(),
+    )
+    .await?;
 
     if let Err(error) = {
         let mut workspaces = state.workspaces.lock().await;
@@ -591,6 +610,7 @@ pub(crate) async fn add_workspace(
         name: entry.name,
         path: entry.path,
         codex_bin: entry.codex_bin,
+        codex_environment_id,
         connected: true,
         kind: entry.kind,
         parent_id: entry.parent_id,
@@ -676,15 +696,27 @@ pub(crate) async fn add_clone(
         },
     };
 
-    let (default_bin, active_env_home) = {
+    let (default_bin, active_env) = {
         let settings = state.app_settings.lock().await;
-        (
-            settings.codex_bin.clone(),
-            resolve_active_codex_environment_path(&settings),
-        )
+        (settings.codex_bin.clone(), resolve_active_codex_environment(&settings))
     };
-    let codex_home = resolve_effective_codex_home(&entry, None, active_env_home.as_deref());
-    let session = match spawn_workspace_session(entry.clone(), default_bin, app, codex_home).await {
+    let legacy_home = resolve_workspace_codex_home(&entry, None);
+    let (codex_home, codex_environment_id) = if let Some(legacy_home) = legacy_home {
+        (Some(legacy_home), None)
+    } else if let Some((env_id, home)) = active_env {
+        (Some(PathBuf::from(home)), Some(env_id))
+    } else {
+        (None, None)
+    };
+    let session = match spawn_workspace_session(
+        entry.clone(),
+        default_bin,
+        app,
+        codex_home,
+        codex_environment_id.clone(),
+    )
+    .await
+    {
         Ok(session) => session,
         Err(error) => {
             let _ = tokio::fs::remove_dir_all(&destination_path).await;
@@ -719,6 +751,7 @@ pub(crate) async fn add_clone(
         name: entry.name,
         path: entry.path,
         codex_bin: entry.codex_bin,
+        codex_environment_id,
         connected: true,
         kind: entry.kind,
         parent_id: entry.parent_id,
@@ -792,16 +825,26 @@ pub(crate) async fn add_worktree(
         settings: WorkspaceSettings::default(),
     };
 
-    let (default_bin, active_env_home) = {
+    let (default_bin, active_env) = {
         let settings = state.app_settings.lock().await;
-        (
-            settings.codex_bin.clone(),
-            resolve_active_codex_environment_path(&settings),
-        )
+        (settings.codex_bin.clone(), resolve_active_codex_environment(&settings))
     };
-    let codex_home =
-        resolve_effective_codex_home(&entry, Some(&parent_entry.path), active_env_home.as_deref());
-    let session = spawn_workspace_session(entry.clone(), default_bin, app, codex_home).await?;
+    let legacy_home = resolve_workspace_codex_home(&entry, Some(&parent_entry.path));
+    let (codex_home, codex_environment_id) = if let Some(legacy_home) = legacy_home {
+        (Some(legacy_home), None)
+    } else if let Some((env_id, home)) = active_env {
+        (Some(PathBuf::from(home)), Some(env_id))
+    } else {
+        (None, None)
+    };
+    let session = spawn_workspace_session(
+        entry.clone(),
+        default_bin,
+        app,
+        codex_home,
+        codex_environment_id.clone(),
+    )
+    .await?;
     {
         let mut workspaces = state.workspaces.lock().await;
         workspaces.insert(entry.id.clone(), entry.clone());
@@ -819,6 +862,7 @@ pub(crate) async fn add_worktree(
         name: entry.name,
         path: entry.path,
         codex_bin: entry.codex_bin,
+        codex_environment_id,
         connected: true,
         kind: entry.kind,
         parent_id: entry.parent_id,
@@ -1082,19 +1126,27 @@ pub(crate) async fn rename_worktree(
             let mut child = session.child.lock().await;
             let _ = child.kill().await;
         }
-        let (default_bin, active_env_home) = {
+        let (default_bin, active_env) = {
             let settings = state.app_settings.lock().await;
-            (
-                settings.codex_bin.clone(),
-                resolve_active_codex_environment_path(&settings),
-            )
+            (settings.codex_bin.clone(), resolve_active_codex_environment(&settings))
         };
-        let codex_home = resolve_effective_codex_home(
-            &entry_snapshot,
-            Some(&parent.path),
-            active_env_home.as_deref(),
-        );
-        match spawn_workspace_session(entry_snapshot.clone(), default_bin, app, codex_home).await {
+        let legacy_home = resolve_workspace_codex_home(&entry_snapshot, Some(&parent.path));
+        let (codex_home, codex_environment_id) = if let Some(legacy_home) = legacy_home {
+            (Some(legacy_home), None)
+        } else if let Some((env_id, home)) = active_env {
+            (Some(PathBuf::from(home)), Some(env_id))
+        } else {
+            (None, None)
+        };
+        match spawn_workspace_session(
+            entry_snapshot.clone(),
+            default_bin,
+            app,
+            codex_home,
+            codex_environment_id,
+        )
+        .await
+        {
             Ok(session) => {
                 state
                     .sessions
@@ -1111,12 +1163,17 @@ pub(crate) async fn rename_worktree(
         }
     }
 
-    let connected = state.sessions.lock().await.contains_key(&entry_snapshot.id);
+    let sessions = state.sessions.lock().await;
+    let codex_environment_id = sessions
+        .get(&entry_snapshot.id)
+        .and_then(|session| session.codex_environment_id.clone());
+    let connected = sessions.contains_key(&entry_snapshot.id);
     Ok(WorkspaceInfo {
         id: entry_snapshot.id,
         name: entry_snapshot.name,
         path: entry_snapshot.path,
         codex_bin: entry_snapshot.codex_bin,
+        codex_environment_id,
         connected,
         kind: entry_snapshot.kind,
         parent_id: entry_snapshot.parent_id,
@@ -1368,12 +1425,17 @@ pub(crate) async fn update_workspace_settings(
     };
     write_workspaces(&state.storage_path, &list)?;
 
-    let connected = state.sessions.lock().await.contains_key(&id);
+    let sessions = state.sessions.lock().await;
+    let codex_environment_id = sessions
+        .get(&id)
+        .and_then(|session| session.codex_environment_id.clone());
+    let connected = sessions.contains_key(&id);
     Ok(WorkspaceInfo {
         id: entry_snapshot.id,
         name: entry_snapshot.name,
         path: entry_snapshot.path,
         codex_bin: entry_snapshot.codex_bin,
+        codex_environment_id,
         connected,
         kind: entry_snapshot.kind,
         parent_id: entry_snapshot.parent_id,
@@ -1402,12 +1464,17 @@ pub(crate) async fn update_workspace_codex_bin(
     };
     write_workspaces(&state.storage_path, &list)?;
 
-    let connected = state.sessions.lock().await.contains_key(&id);
+    let sessions = state.sessions.lock().await;
+    let codex_environment_id = sessions
+        .get(&id)
+        .and_then(|session| session.codex_environment_id.clone());
+    let connected = sessions.contains_key(&id);
     Ok(WorkspaceInfo {
         id: entry_snapshot.id,
         name: entry_snapshot.name,
         path: entry_snapshot.path,
         codex_bin: entry_snapshot.codex_bin,
+        codex_environment_id,
         connected,
         kind: entry_snapshot.kind,
         parent_id: entry_snapshot.parent_id,
@@ -1444,16 +1511,26 @@ pub(crate) async fn connect_workspace(
             .ok_or("workspace not found")?
     };
 
-    let (default_bin, active_env_home) = {
+    let (default_bin, active_env) = {
         let settings = state.app_settings.lock().await;
-        (
-            settings.codex_bin.clone(),
-            resolve_active_codex_environment_path(&settings),
-        )
+        (settings.codex_bin.clone(), resolve_active_codex_environment(&settings))
     };
-    let codex_home =
-        resolve_effective_codex_home(&entry, parent_path.as_deref(), active_env_home.as_deref());
-    let session = spawn_workspace_session(entry.clone(), default_bin, app, codex_home).await?;
+    let legacy_home = resolve_workspace_codex_home(&entry, parent_path.as_deref());
+    let (codex_home, codex_environment_id) = if let Some(legacy_home) = legacy_home {
+        (Some(legacy_home), None)
+    } else if let Some((env_id, home)) = active_env {
+        (Some(PathBuf::from(home)), Some(env_id))
+    } else {
+        (None, None)
+    };
+    let session = spawn_workspace_session(
+        entry.clone(),
+        default_bin,
+        app,
+        codex_home,
+        codex_environment_id,
+    )
+    .await?;
     state.sessions.lock().await.insert(entry.id, session);
     Ok(())
 }
@@ -1540,6 +1617,7 @@ mod tests {
             path: "/tmp".to_string(),
             connected: false,
             codex_bin: None,
+            codex_environment_id: None,
             kind,
             parent_id,
             worktree,

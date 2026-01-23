@@ -39,13 +39,17 @@ use types::{
 
 const DEFAULT_LISTEN_ADDR: &str = "127.0.0.1:4732";
 
-fn resolve_active_codex_environment_path(settings: &AppSettings) -> Option<String> {
+fn resolve_active_codex_environment(settings: &AppSettings) -> Option<(String, String)> {
     let active_id = settings.active_codex_environment_id.as_ref()?;
-    settings
+    let env = settings
         .codex_environments
         .iter()
-        .find(|env| env.id == *active_id)
-        .map(|env| env.codex_home.clone())
+        .find(|env| env.id == *active_id)?;
+    let home = env.codex_home.trim();
+    if home.is_empty() {
+        return None;
+    }
+    Some((env.id.clone(), home.to_string()))
 }
 
 #[derive(Clone)]
@@ -128,12 +132,16 @@ impl DaemonState {
         let sessions = self.sessions.lock().await;
         let mut result = Vec::new();
         for entry in workspaces.values() {
+            let codex_environment_id = sessions
+                .get(&entry.id)
+                .and_then(|session| session.codex_environment_id.clone());
             result.push(WorkspaceInfo {
                 id: entry.id.clone(),
                 name: entry.name.clone(),
                 path: entry.path.clone(),
                 connected: sessions.contains_key(&entry.id),
                 codex_bin: entry.codex_bin.clone(),
+                codex_environment_id,
                 kind: entry.kind.clone(),
                 parent_id: entry.parent_id.clone(),
                 worktree: entry.worktree.clone(),
@@ -175,22 +183,26 @@ impl DaemonState {
             settings: WorkspaceSettings::default(),
         };
 
-        let (default_bin, active_env_home) = {
+        let (default_bin, active_env) = {
             let settings = self.app_settings.lock().await;
-            (
-                settings.codex_bin.clone(),
-                resolve_active_codex_environment_path(&settings),
-            )
+            (settings.codex_bin.clone(), resolve_active_codex_environment(&settings))
         };
 
-        let codex_home =
-            codex_home::resolve_effective_codex_home(&entry, None, active_env_home.as_deref());
+        let legacy_home = codex_home::resolve_workspace_codex_home(&entry, None);
+        let (codex_home, codex_environment_id) = if let Some(legacy_home) = legacy_home {
+            (Some(legacy_home), None)
+        } else if let Some((env_id, home)) = active_env {
+            (Some(PathBuf::from(home)), Some(env_id))
+        } else {
+            (None, None)
+        };
         let session = spawn_workspace_session(
             entry.clone(),
             default_bin,
             client_version,
             self.event_sink.clone(),
             codex_home,
+            codex_environment_id.clone(),
         )
         .await?;
 
@@ -209,6 +221,7 @@ impl DaemonState {
             path: entry.path,
             connected: true,
             codex_bin: entry.codex_bin,
+            codex_environment_id,
             kind: entry.kind,
             parent_id: entry.parent_id,
             worktree: entry.worktree,
@@ -282,25 +295,26 @@ impl DaemonState {
             settings: WorkspaceSettings::default(),
         };
 
-        let (default_bin, active_env_home) = {
+        let (default_bin, active_env) = {
             let settings = self.app_settings.lock().await;
-            (
-                settings.codex_bin.clone(),
-                resolve_active_codex_environment_path(&settings),
-            )
+            (settings.codex_bin.clone(), resolve_active_codex_environment(&settings))
         };
 
-        let codex_home = codex_home::resolve_effective_codex_home(
-            &entry,
-            Some(&parent_entry.path),
-            active_env_home.as_deref(),
-        );
+        let legacy_home = codex_home::resolve_workspace_codex_home(&entry, Some(&parent_entry.path));
+        let (codex_home, codex_environment_id) = if let Some(legacy_home) = legacy_home {
+            (Some(legacy_home), None)
+        } else if let Some((env_id, home)) = active_env {
+            (Some(PathBuf::from(home)), Some(env_id))
+        } else {
+            (None, None)
+        };
         let session = spawn_workspace_session(
             entry.clone(),
             default_bin,
             client_version,
             self.event_sink.clone(),
             codex_home,
+            codex_environment_id.clone(),
         )
         .await?;
 
@@ -319,6 +333,7 @@ impl DaemonState {
             path: entry.path,
             connected: true,
             codex_bin: entry.codex_bin,
+            codex_environment_id,
             kind: entry.kind,
             parent_id: entry.parent_id,
             worktree: entry.worktree,
@@ -553,24 +568,26 @@ impl DaemonState {
         let was_connected = self.sessions.lock().await.contains_key(&entry_snapshot.id);
         if was_connected {
             self.kill_session(&entry_snapshot.id).await;
-            let (default_bin, active_env_home) = {
+            let (default_bin, active_env) = {
                 let settings = self.app_settings.lock().await;
-                (
-                    settings.codex_bin.clone(),
-                    resolve_active_codex_environment_path(&settings),
-                )
+                (settings.codex_bin.clone(), resolve_active_codex_environment(&settings))
             };
-            let codex_home = codex_home::resolve_effective_codex_home(
-                &entry_snapshot,
-                Some(&parent.path),
-                active_env_home.as_deref(),
-            );
+            let legacy_home =
+                codex_home::resolve_workspace_codex_home(&entry_snapshot, Some(&parent.path));
+            let (codex_home, codex_environment_id) = if let Some(legacy_home) = legacy_home {
+                (Some(legacy_home), None)
+            } else if let Some((env_id, home)) = active_env {
+                (Some(PathBuf::from(home)), Some(env_id))
+            } else {
+                (None, None)
+            };
             match spawn_workspace_session(
                 entry_snapshot.clone(),
                 default_bin,
                 client_version,
                 self.event_sink.clone(),
                 codex_home,
+                codex_environment_id,
             )
             .await
             {
@@ -589,13 +606,18 @@ impl DaemonState {
             }
         }
 
-        let connected = self.sessions.lock().await.contains_key(&entry_snapshot.id);
+        let sessions = self.sessions.lock().await;
+        let codex_environment_id = sessions
+            .get(&entry_snapshot.id)
+            .and_then(|session| session.codex_environment_id.clone());
+        let connected = sessions.contains_key(&entry_snapshot.id);
         Ok(WorkspaceInfo {
             id: entry_snapshot.id,
             name: entry_snapshot.name,
             path: entry_snapshot.path,
             connected,
             codex_bin: entry_snapshot.codex_bin,
+            codex_environment_id,
             kind: entry_snapshot.kind,
             parent_id: entry_snapshot.parent_id,
             worktree: entry_snapshot.worktree,
@@ -705,13 +727,18 @@ impl DaemonState {
         };
         write_workspaces(&self.storage_path, &list)?;
 
-        let connected = self.sessions.lock().await.contains_key(&id);
+        let sessions = self.sessions.lock().await;
+        let codex_environment_id = sessions
+            .get(&id)
+            .and_then(|session| session.codex_environment_id.clone());
+        let connected = sessions.contains_key(&id);
         Ok(WorkspaceInfo {
             id: entry_snapshot.id,
             name: entry_snapshot.name,
             path: entry_snapshot.path,
             connected,
             codex_bin: entry_snapshot.codex_bin,
+            codex_environment_id,
             kind: entry_snapshot.kind,
             parent_id: entry_snapshot.parent_id,
             worktree: entry_snapshot.worktree,
@@ -738,13 +765,18 @@ impl DaemonState {
         };
         write_workspaces(&self.storage_path, &list)?;
 
-        let connected = self.sessions.lock().await.contains_key(&id);
+        let sessions = self.sessions.lock().await;
+        let codex_environment_id = sessions
+            .get(&id)
+            .and_then(|session| session.codex_environment_id.clone());
+        let connected = sessions.contains_key(&id);
         Ok(WorkspaceInfo {
             id: entry_snapshot.id,
             name: entry_snapshot.name,
             path: entry_snapshot.path,
             connected,
             codex_bin: entry_snapshot.codex_bin,
+            codex_environment_id,
             kind: entry_snapshot.kind,
             parent_id: entry_snapshot.parent_id,
             worktree: entry_snapshot.worktree,
@@ -768,12 +800,9 @@ impl DaemonState {
                 .ok_or("workspace not found")?
         };
 
-        let (default_bin, active_env_home) = {
+        let (default_bin, active_env) = {
             let settings = self.app_settings.lock().await;
-            (
-                settings.codex_bin.clone(),
-                resolve_active_codex_environment_path(&settings),
-            )
+            (settings.codex_bin.clone(), resolve_active_codex_environment(&settings))
         };
 
         let parent_path = if entry.kind.is_worktree() {
@@ -786,17 +815,21 @@ impl DaemonState {
         } else {
             None
         };
-        let codex_home = codex_home::resolve_effective_codex_home(
-            &entry,
-            parent_path.as_deref(),
-            active_env_home.as_deref(),
-        );
+        let legacy_home = codex_home::resolve_workspace_codex_home(&entry, parent_path.as_deref());
+        let (codex_home, codex_environment_id) = if let Some(legacy_home) = legacy_home {
+            (Some(legacy_home), None)
+        } else if let Some((env_id, home)) = active_env {
+            (Some(PathBuf::from(home)), Some(env_id))
+        } else {
+            (None, None)
+        };
         let session = spawn_workspace_session(
             entry,
             default_bin,
             client_version,
             self.event_sink.clone(),
             codex_home,
+            codex_environment_id,
         )
         .await?;
 
